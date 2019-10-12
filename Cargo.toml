@@ -4,6 +4,7 @@ version = "0.0.1"
 authors = ["Gardner Vickers <gardner@vickers.me>"]
 edition = "2018"
 license = "MIT"
+repository = "https://github.com/gardnervickers/simulation"
 description = """
 Framework for deterministic simulation testing.
 """
