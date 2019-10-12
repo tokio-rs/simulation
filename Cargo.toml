@@ -1,0 +1,15 @@
+[package]
+name = "simulation"
+version = "0.0.1"
+authors = ["Gardner Vickers <gardner@vickers.me>"]
+edition = "2018"
+license = "MIT"
+description = """
+Framework for deterministic simulation testing.
+"""
+[dependencies]
+tokio = {version = "0.2.0-alpha.5"}
+futures-preview = "0.3.0-alpha.19"
+tokio-timer = "0.3.0-alpha.6"
+tokio-executor = {version = "0.2.0-alpha.5"}
+tokio-net = {version = "0.2.0-alpha.5"}
