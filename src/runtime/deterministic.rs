@@ -5,7 +5,9 @@ use std::time;
 use tokio_executor::current_thread::{CurrentThread, TaskExecutor};
 use tokio_net::driver::Reactor;
 use tokio_timer::timer;
+use rand::{rngs, Rng};
 
+mod mocknetwork;
 mod mocktime;
 
 #[derive(Debug, Clone)]
@@ -14,9 +16,37 @@ pub struct DeterministicRuntimeHandle {
     executor_handle: tokio_executor::current_thread::Handle,
     clock: mocktime::MockClock,
     timer_handle: timer::Handle,
+    rng: Option<rngs::SmallRng>,
 }
 
-impl DeterministicRuntimeHandle {}
+impl DeterministicRuntimeHandle {
+    /// Decides to preform an action based on the provided probability if there is an RNG seed 
+    /// provided to the backing DeterministicRuntime.
+    /// If there is none, then this function will always return false.
+    fn should_perform_random_action(&mut self, probability: f32) -> bool {
+        if let Some(ref mut rng) = self.rng {
+            let rand: f32 = rng.gen_range(0.0, 1.0);
+            if probability <= rand {
+                return true;
+            } else {
+                return false;
+            }
+        }
+        return false;        
+    }
+    /// Returns a randomized delay between the provided from and to durations based on the provided probability of the delay
+    /// occuring.
+    pub fn maybe_random_delay(&mut self, probability: f32, from: time::Duration, to: time::Duration) -> Option<tokio::timer::Delay> {
+        if self.should_perform_random_action(probability) {
+            if let Some(ref mut rng) = self.rng {
+                let duration = rng.gen_range(from.as_millis(), to.as_millis());
+                let duration = time::Duration::from_millis(duration as u64);
+                return Some(self.delay_from(duration));                
+            }
+        }
+        None
+    }
+}
 
 impl Environment for DeterministicRuntimeHandle {
     fn spawn<F>(&self, future: F)
@@ -30,7 +60,7 @@ impl Environment for DeterministicRuntimeHandle {
     fn now(&self) -> time::Instant {
         self.clock.now()
     }
-    fn delay(&self, deadline: time::Instant) -> tokio::timer::Delay {        
+    fn delay(&self, deadline: time::Instant) -> tokio::timer::Delay {
         self.timer_handle.delay(deadline)
     }
     fn timeout<T>(&self, value: T, timeout: time::Duration) -> tokio::timer::Timeout<T> {
@@ -44,6 +74,7 @@ pub struct DeterministicRuntime {
     timer_handle: tokio_timer::timer::Handle,
     clock: mocktime::MockClock,
     executor: CurrentThread<timer::Timer<mocktime::MockPark<Reactor>>>,
+    rng_seed: Option<u64>,
 }
 
 impl DeterministicRuntime {
@@ -51,7 +82,7 @@ impl DeterministicRuntime {
         let reactor = Reactor::new().map_err(|source| Error::RuntimeBuild { source })?;
         let reactor_handle = reactor.handle();
         let (clock, park) = mocktime::MockClock::wrap_park(reactor);
-        let timer = tokio_timer::timer::Timer::new_with_now(park, clock.get_clock());                
+        let timer = tokio_timer::timer::Timer::new_with_now(park, clock.get_clock());
         let timer_handle = timer.handle();
         let executor = CurrentThread::new_with_park(timer);
         let runtime = DeterministicRuntime {
@@ -59,8 +90,15 @@ impl DeterministicRuntime {
             timer_handle,
             clock,
             executor,
+            rng_seed: None,
         };
         return Ok(runtime);
+    }
+
+    pub fn new_with_seed(seed: u64) -> Result<Self, Error> {
+        let mut rt = DeterministicRuntime::new()?;
+        rt.rng_seed = Some(seed);
+        Ok(rt)
     }
 
     pub fn handle(&self) -> DeterministicRuntimeHandle {
@@ -68,11 +106,13 @@ impl DeterministicRuntime {
         let clock = self.clock.clone();
         let timer_handle = self.timer_handle.clone();
         let reactor_handle = self.reactor_handle.clone();
+        let rng = self.rng_seed.map(|s| rand::SeedableRng::seed_from_u64(s));
         DeterministicRuntimeHandle {
             reactor_handle,
             executor_handle,
             clock,
             timer_handle,
+            rng,
         }
     }
 
@@ -109,7 +149,7 @@ impl DeterministicRuntime {
         } = *self;
         let _reactor = tokio_net::driver::set_default(&reactor_handle);
         let _guard = tokio_timer::timer::set_default(timer_handle);
-        clock.enter(move || {            
+        clock.enter(move || {
             let mut default_executor = TaskExecutor::current();
             tokio_executor::with_default(&mut default_executor, || f(executor))
         })
@@ -149,13 +189,15 @@ mod tests {
             let completed_at1 = crate::spawn_with_result(&handle1.clone(), async move {
                 delay1.await;
                 handle1.now()
-            }).await;
+            })
+            .await;
 
             let handle2 = handle.clone();
             let completed_at2 = crate::spawn_with_result(&handle2.clone(), async move {
                 delay2.await;
                 handle2.now()
-            }).await;
+            })
+            .await;
             assert!(completed_at1 < completed_at2)
         });
     }
@@ -170,7 +212,10 @@ mod tests {
             assert_eq!(handle.now(), tokio_timer::clock::now());
             let delay = tokio::timer::delay_for(time::Duration::from_secs(10));
             delay.await;
-            assert_eq!(start_time + time::Duration::from_secs(10), tokio_timer::clock::now());
+            assert_eq!(
+                start_time + time::Duration::from_secs(10),
+                tokio_timer::clock::now()
+            );
         });
     }
 }
