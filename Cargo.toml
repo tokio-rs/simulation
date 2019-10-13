@@ -19,3 +19,4 @@ tokio-sync = "0.2.0-alpha.6"
 try-lock = "0.2.2"
 tokio-test = "0.2.0-alpha.6"
 rand = {version = "0.7.2", features =["small_rng"]}
+pin-project = "0.4.2"

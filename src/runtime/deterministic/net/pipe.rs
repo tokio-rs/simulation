@@ -1,33 +1,29 @@
 use bytes::{Buf, Bytes, BytesMut, IntoBuf};
-use futures::{channel::mpsc, stream::FusedStream, Poll, StreamExt, FutureExt};
+use futures::{channel::mpsc, stream::FusedStream, FutureExt, Poll, StreamExt};
 use std::{collections::VecDeque, io, net, num, pin::Pin, sync::Arc, task::Context, time};
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio_sync::AtomicWaker;
-use try_lock::TryLock;
 
-struct Inner {
-    client_to_server: Pipe,
-    server_to_client: Pipe,
-}
 
-struct Pipe {
+#[derive(Debug)]
+pub(crate) struct Pipe {
     env: crate::DeterministicRuntimeHandle,
     read_delay: Option<tokio::timer::Delay>,
     write_delay: Option<tokio::timer::Delay>,
     buf: Option<BytesMut>,
     waker: AtomicWaker,
-    dropped: bool,
+    shutdown: bool,
 }
 
 impl Pipe {
-    fn new(env: crate::DeterministicRuntimeHandle) -> Self {
+    pub(crate) fn new(env: crate::DeterministicRuntimeHandle) -> Self {
         Self {
             env,
             read_delay: None,
             write_delay: None,
             buf: None,
             waker: AtomicWaker::new(),
-            dropped: false,
+            shutdown: false,
         }
     }
 }
@@ -38,8 +34,8 @@ impl AsyncRead for Pipe {
         cx: &mut Context<'_>,
         dst: &mut [u8],
     ) -> Poll<io::Result<usize>> {
-        if self.dropped {
-            return Poll::Ready(Err(io::ErrorKind::BrokenPipe.into()));
+        if self.shutdown {
+            return Poll::Ready(Ok(0));
         }
 
         // check if there is an existing read delay
@@ -48,11 +44,15 @@ impl AsyncRead for Pipe {
             if let Poll::Pending = delay.poll_unpin(cx) {
                 self.read_delay.replace(delay);
                 return Poll::Pending;
-            }            
+            }
         } else {
             // no poll delay found, lets roll for another one with a 25% probability of being delayed on the next poll
             // for anywhere from 100 to 1000 milliseconds.
-            if let Some(mut new_delay) = self.env.maybe_random_delay(0.25, time::Duration::from_millis(100), time::Duration::from_millis(1000)) {
+            if let Some(mut new_delay) = self.env.maybe_random_delay(
+                0.25,
+                time::Duration::from_millis(100),
+                time::Duration::from_millis(1000),
+            ) {
                 if let Poll::Pending = new_delay.poll_unpin(cx) {
                     self.read_delay.replace(new_delay);
                     return Poll::Pending;
@@ -86,7 +86,7 @@ impl AsyncWrite for Pipe {
         cx: &mut Context<'_>,
         buf: &[u8],
     ) -> Poll<Result<usize, io::Error>> {
-        if self.dropped {
+        if self.shutdown {            
             return Poll::Ready(Err(io::ErrorKind::BrokenPipe.into()));
         }
 
@@ -96,11 +96,15 @@ impl AsyncWrite for Pipe {
             if let Poll::Pending = delay.poll_unpin(cx) {
                 self.write_delay.replace(delay);
                 return Poll::Pending;
-            }            
+            }
         } else {
             // no poll delay found, lets roll for another one with a 25% probability of being delayed on the next poll
             // for anywhere from 100 to 1000 milliseconds.
-            if let Some(mut new_delay) = self.env.maybe_random_delay(0.25, time::Duration::from_millis(100), time::Duration::from_millis(1000)) {
+            if let Some(mut new_delay) = self.env.maybe_random_delay(
+                0.25,
+                time::Duration::from_millis(100),
+                time::Duration::from_millis(1000),
+            ) {
                 if let Poll::Pending = new_delay.poll_unpin(cx) {
                     self.write_delay.replace(new_delay);
                     return Poll::Pending;
@@ -117,14 +121,18 @@ impl AsyncWrite for Pipe {
             return Poll::Ready(Ok(buf.len()));
         }
     }
-    fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), io::Error>> {
+    fn poll_flush(self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<Result<(), io::Error>> {
+        if self.shutdown {            
+            return Poll::Ready(Err(io::ErrorKind::BrokenPipe.into()));
+        }
         Poll::Ready(Ok(()))
     }
     fn poll_shutdown(
         mut self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-    ) -> Poll<Result<(), io::Error>> {
-        self.dropped = true;
+        _: &mut Context<'_>,
+    ) -> Poll<Result<(), io::Error>> {        
+        self.shutdown = true;
+        self.waker.wake();
         Poll::Ready(Ok(()))
     }
 }
@@ -136,6 +144,8 @@ mod tests {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
     #[test]
+    /// Tests that a pipe can transport values, also demonstrates the probabilistic delay/fault injection capabilites
+    /// of the pipe. A seed of 40 will make this test fail for example.
     fn bounded_pipe() {
         let mut runtime = crate::DeterministicRuntime::new_with_seed(2).unwrap();
         let handle = runtime.handle();
@@ -151,8 +161,29 @@ mod tests {
             let mut target = vec![0; 9];
             r.read_exact(&mut target).await.unwrap();
             assert_eq!(std::str::from_utf8(&target[..]).unwrap(), "foobarbaz");
-            let time_after = handle.now();                    
-            assert!(time_after > time_before, "expected with a seed of 2, the timer would advance");            
+            let time_after = handle.now();
+            assert!(
+                time_after > time_before,
+                "expected with a seed of 2, the timer would advance"
+            );
+        })
+    }
+
+    #[test]
+    /// When a pipe is shutdown, the write side should return an error on subsequent writes, and the read
+    /// side should always return Ok(0).
+    /// TODO: Check if this logic matches TcpStream
+    fn shutdown_pipe() {
+        let mut runtime = crate::DeterministicRuntime::new().unwrap();
+        let handle = runtime.handle();
+        let rw = Pipe::new(handle.clone());
+        runtime.block_on(async {
+            let (mut r, mut w) = tokio::io::split(rw);            
+            w.write("foo".as_bytes()).await.unwrap();            
+            w.shutdown().await.unwrap(); 
+            assert!(w.write_all("foo".as_bytes()).await.is_err(), "expected write to fail after shutdown");
+            let mut target = vec![0;0];
+            assert_eq!(r.read(&mut target[..]).await.unwrap(), 0, "expected to read 0 bytes from shutdown pipe");
         })
     }
 }
