@@ -1,4 +1,4 @@
-#![allow(unused_imports)]
+#![allow(unused_imports, dead_code)]
 //! This crate provides an abstraction over the [tokio] [CurrentThread] runtime
 //! which allows for simulating applications.
 //!
@@ -36,15 +36,22 @@
 //! [Delay]:[tokio_timer::Delay]
 //! [Timeout]:[tokio_timer::Timeout]
 
-use futures::{channel::oneshot, Future, FutureExt};
-use std::time;
+use async_trait::async_trait;
+use futures::{channel::oneshot, Future, FutureExt, Poll};
+use std::{io, net, pin::Pin, task::Context, time};
 mod runtime;
+pub(crate) use runtime::DeterministicRuntimeSchedulerRng;
 pub use runtime::{
     DeterministicRuntime, DeterministicRuntimeHandle, SingleThreadedRuntime,
     SingleThreadedRuntimeHandle,
 };
+use tokio::io::{AsyncRead, AsyncWrite};
 
+#[async_trait]
 pub trait Environment: Unpin + Sized + Clone + Send {
+    type TcpStream: TcpStream + Send;
+    type TcpListener: TcpListener + Send;
+
     fn spawn<F>(&self, future: F)
     where
         F: Future<Output = ()> + Send + 'static;
@@ -59,6 +66,37 @@ pub trait Environment: Unpin + Sized + Clone + Send {
     }
     /// Creates a timeout future which will execute blah blah
     fn timeout<T>(&self, value: T, timeout: time::Duration) -> tokio_timer::Timeout<T>;
+
+    async fn bind<'a, A>(&'a self, addrs: A) -> Result<Self::TcpListener, io::Error>
+    where
+        A: net::ToSocketAddrs + Send,
+        A::Iter: Send;
+    async fn connect<'a, A>(&'a self, addrs: A) -> Result<Self::TcpStream, io::Error>
+    where
+        A: net::ToSocketAddrs + Send,
+        A::Iter: Send;
+}
+
+pub trait TcpStream: AsyncRead + AsyncWrite {
+    fn local_addr(&self) -> Result<net::SocketAddr, io::Error>;
+    fn peer_addr(&self) -> Result<net::SocketAddr, io::Error>;
+    fn shutdown(&self) -> Result<(), io::Error>;
+}
+
+pub trait TcpListener {
+    type Stream: TcpStream + Send;
+    fn local_addr(&self) -> Result<net::SocketAddr, io::Error>;
+    fn poll_accept(&mut self, cx: &mut Context<'_>) -> Poll<Result<Self::Stream, io::Error>>;
+
+    fn accept<'a>(
+        &'a mut self,
+    ) -> Pin<Box<dyn Future<Output = Result<Self::Stream, io::Error>> + 'a + Send>>
+    where
+        Self: Send,
+    {
+        let fut = futures::future::poll_fn(move |cx| self.poll_accept(cx));
+        return Pin::from(Box::new(fut));
+    }
 }
 
 pub fn spawn_with_result<F, E, U>(env: &E, future: F) -> impl Future<Output = Option<U>>

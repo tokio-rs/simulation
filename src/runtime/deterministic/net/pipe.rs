@@ -6,7 +6,7 @@ use tokio_sync::AtomicWaker;
 
 #[derive(Debug)]
 pub(crate) struct Pipe {
-    env: crate::DeterministicRuntimeHandle,
+    env: crate::DeterministicRuntimeSchedulerRng,
     read_delay: Option<tokio::timer::Delay>,
     write_delay: Option<tokio::timer::Delay>,
     buf: Option<BytesMut>,
@@ -15,7 +15,7 @@ pub(crate) struct Pipe {
 }
 
 impl Pipe {
-    pub(crate) fn new(env: crate::DeterministicRuntimeHandle) -> Self {
+    pub(crate) fn new(env: crate::DeterministicRuntimeSchedulerRng) -> Self {
         Self {
             env,
             read_delay: None,
@@ -24,6 +24,10 @@ impl Pipe {
             waker: AtomicWaker::new(),
             shutdown: false,
         }
+    }
+    pub(crate) fn shutdown(&mut self) {
+        self.shutdown = true;
+        self.waker.wake();
     }
 }
 
@@ -46,11 +50,11 @@ impl AsyncRead for Pipe {
             }
         } else {
             // no poll delay found, lets roll for another one with a 25% probability of being delayed on the next poll
-            // for anywhere from 100 to 1000 milliseconds.
+            // for anywhere from 100 to 5000 milliseconds.
             if let Some(mut new_delay) = self.env.maybe_random_delay(
                 0.25,
                 time::Duration::from_millis(100),
-                time::Duration::from_millis(1000),
+                time::Duration::from_millis(5000),
             ) {
                 if let Poll::Pending = new_delay.poll_unpin(cx) {
                     self.read_delay.replace(new_delay);
@@ -98,11 +102,11 @@ impl AsyncWrite for Pipe {
             }
         } else {
             // no poll delay found, lets roll for another one with a 25% probability of being delayed on the next poll
-            // for anywhere from 100 to 1000 milliseconds.
+            // for anywhere from 100 to 5000 milliseconds.
             if let Some(mut new_delay) = self.env.maybe_random_delay(
                 0.25,
                 time::Duration::from_millis(100),
-                time::Duration::from_millis(1000),
+                time::Duration::from_millis(5000),
             ) {
                 if let Poll::Pending = new_delay.poll_unpin(cx) {
                     self.write_delay.replace(new_delay);
@@ -147,7 +151,7 @@ mod tests {
         let handle = runtime.handle();
         runtime.block_on(async {
             let time_before = handle.now();
-            let rw = Pipe::new(handle.clone());
+            let rw = Pipe::new(handle.scheduler_rng());
             let (mut r, mut w) = tokio::io::split(rw);
             handle.spawn(async move {
                 w.write_all("foo".as_bytes()).await.unwrap();
@@ -172,7 +176,7 @@ mod tests {
     fn shutdown_pipe() {
         let mut runtime = crate::DeterministicRuntime::new().unwrap();
         let handle = runtime.handle();
-        let rw = Pipe::new(handle.clone());
+        let rw = Pipe::new(handle.scheduler_rng());
         runtime.block_on(async {
             let (mut r, mut w) = tokio::io::split(rw);
             w.write("foo".as_bytes()).await.unwrap();

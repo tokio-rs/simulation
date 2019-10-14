@@ -1,6 +1,7 @@
 mod deterministic;
 mod singlethread;
 
+pub(crate) use deterministic::DeterministicRuntimeSchedulerRng;
 pub use deterministic::{DeterministicRuntime, DeterministicRuntimeHandle};
 pub use singlethread::{SingleThreadedRuntime, SingleThreadedRuntimeHandle};
 use std::io;

@@ -1,10 +1,11 @@
 use crate::runtime::Error;
+use async_trait::async_trait;
 use futures::Future;
-use std::time;
+use std::{io, net::ToSocketAddrs, pin::Pin, task::Context, time};
 use tokio_executor::current_thread;
 use tokio_net::driver::Reactor;
 use tokio_timer::{clock::Clock, timer};
-
+mod net;
 #[derive(Debug, Clone)]
 pub struct SingleThreadedRuntimeHandle {
     executor_handle: current_thread::Handle,
@@ -12,7 +13,10 @@ pub struct SingleThreadedRuntimeHandle {
     timer_handle: timer::Handle,
 }
 
+#[async_trait]
 impl crate::Environment for SingleThreadedRuntimeHandle {
+    type TcpStream = tokio::net::TcpStream;
+    type TcpListener = tokio::net::TcpListener;
     fn spawn<F>(&self, future: F)
     where
         F: Future<Output = ()> + Send + 'static,
@@ -30,6 +34,12 @@ impl crate::Environment for SingleThreadedRuntimeHandle {
     fn timeout<T>(&self, value: T, timeout: time::Duration) -> tokio::timer::Timeout<T> {
         self.timer_handle.timeout(value, timeout)
     }
+    async fn bind<'a, A>(&'a self, addrs: A) -> Result<Self::TcpListener, io::Error>
+    where
+        A: ToSocketAddrs + Send { unimplemented!() }
+    async fn connect<'a, A>(&'a self, addrs: A) -> Result<Self::TcpStream, io::Error>
+    where
+        A: ToSocketAddrs + Send { unimplemented!() }
 }
 
 pub struct SingleThreadedRuntime {

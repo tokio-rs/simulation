@@ -4,7 +4,9 @@ use std::{io, pin::Pin, sync::Arc, task::Context};
 use tokio::io::{AsyncRead, AsyncWrite};
 use try_lock::TryLock;
 
-pub(crate) fn new_pair(env: crate::DeterministicRuntimeHandle) -> (ClientSocket, ServerSocket) {
+pub(crate) fn new_pair(
+    env: crate::DeterministicRuntimeSchedulerRng,
+) -> (ClientSocket, ServerSocket) {
     let inner = Inner {
         client: super::Pipe::new(env.clone()),
         server: super::Pipe::new(env.clone()),
@@ -28,8 +30,19 @@ struct Inner {
 type State = Arc<TryLock<Inner>>;
 
 #[derive(Debug)]
-pub(crate) struct ClientSocket {
+pub struct ClientSocket {
     inner: State,
+}
+
+impl ClientSocket {
+    pub(crate) fn shutdown(&self) {
+        loop {
+            if let Some(mut state) = self.inner.try_lock() {
+                state.client.shutdown();
+                state.server.shutdown();
+            }
+        }
+    }
 }
 
 impl AsyncRead for ClientSocket {
@@ -84,8 +97,19 @@ impl AsyncWrite for ClientSocket {
 }
 
 #[derive(Debug)]
-pub(crate) struct ServerSocket {
+pub struct ServerSocket {
     inner: State,
+}
+
+impl ServerSocket {
+    pub(crate) fn shutdown(&self) {
+        loop {
+            if let Some(mut state) = self.inner.try_lock() {
+                state.client.shutdown();
+                state.server.shutdown();
+            }
+        }
+    }
 }
 
 impl AsyncRead for ServerSocket {
@@ -161,7 +185,7 @@ mod test {
         let mut runtime = crate::DeterministicRuntime::new().unwrap();
         let handle = runtime.handle();
         runtime.block_on(async {
-            let (client, server) = new_pair(handle.clone());
+            let (client, server) = new_pair(handle.scheduler_rng());
             handle.spawn(pong_server(server));
             let mut transport = tokio::codec::Framed::new(client, tokio::codec::LinesCodec::new());
             for _ in 0..100 {
