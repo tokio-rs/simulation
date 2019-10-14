@@ -9,11 +9,11 @@
 //! 1. A banking server, which maintains the current balance for a users account.
 //! 2. An ATM process, which
 
-use futures::{SinkExt, StreamExt, channel::oneshot};
+use futures::{channel::oneshot, SinkExt, StreamExt};
 use simulation::{
     DeterministicRuntime, DeterministicRuntimeHandle, Environment, TcpListener, TcpStream,
 };
-use std::sync::{Arc};
+use std::sync::Arc;
 use tokio::codec::{Framed, LinesCodec};
 
 #[derive(Debug)]
@@ -68,10 +68,13 @@ impl BankOperations {
     }
 }
 
-async fn banking_server(handle: DeterministicRuntimeHandle, accepting: oneshot::Sender<bool>) {
+async fn banking_server(handle: DeterministicRuntimeHandle, bind_addr: std::net::SocketAddr, accepting: oneshot::Sender<bool>) {
     let user_balance = std::sync::Arc::new(std::sync::Mutex::new(0usize));
-    let mut listener = handle.bind("localhost:9092").await.unwrap();
-    accepting.send(true);
+    
+    
+    let mut listener = handle.bind(bind_addr).await.unwrap();
+    accepting.send(true).unwrap();
+
     while let Ok(new_connection) = listener.accept().await {
         println!("new connection from {:?}", new_connection.peer_addr());
         let framed_read = Framed::new(new_connection, LinesCodec::new());
@@ -109,19 +112,21 @@ async fn banking_server(handle: DeterministicRuntimeHandle, accepting: oneshot::
         });
     }
 }
+
 fn main() {
     let mut runtime = DeterministicRuntime::new_with_seed(10).unwrap();
     let handle = runtime.handle();
+    let bind_addr = std::net::SocketAddr::new(std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST), 9092);
 
     runtime.block_on(async {
         let server_handle = handle.clone();
         // setup a channel to notify us when a bind happens
         let (bind_tx, bind_rx) = oneshot::channel();
-        handle.spawn(async move{
-          banking_server(server_handle, bind_tx).await;
+        handle.spawn(async move {
+            banking_server(server_handle, bind_addr.clone(), bind_tx).await;
         });
-        bind_rx.await.unwrap();
-        let socket = handle.connect("localhost:9092").await.unwrap();
+        bind_rx.await.unwrap();        
+        let socket = handle.connect(bind_addr).await.unwrap();
         let mut transport = Framed::new(socket, LinesCodec::new());
         transport.send(String::from("deposit 100")).await.unwrap();
         transport.send(String::from("balancereq")).await.unwrap();

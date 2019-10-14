@@ -1,4 +1,3 @@
-#![allow(unused_imports, dead_code)]
 //! This crate provides an abstraction over the [tokio] [CurrentThread] runtime
 //! which allows for simulating applications.
 //!
@@ -67,14 +66,12 @@ pub trait Environment: Unpin + Sized + Clone + Send {
     /// Creates a timeout future which will execute blah blah
     fn timeout<T>(&self, value: T, timeout: time::Duration) -> tokio_timer::Timeout<T>;
 
-    async fn bind<'a, A>(&'a self, addrs: A) -> Result<Self::TcpListener, io::Error>
+    async fn bind<'a, A>(&'a self, addr: A) -> Result<Self::TcpListener, io::Error>
     where
-        A: net::ToSocketAddrs + Send,
-        A::Iter: Send;
-    async fn connect<'a, A>(&'a self, addrs: A) -> Result<Self::TcpStream, io::Error>
+        A: Into<net::SocketAddr> + Send + Sync;
+    async fn connect<'a, A>(&'a self, addr: A) -> Result<Self::TcpStream, io::Error>
     where
-        A: net::ToSocketAddrs + Send,
-        A::Iter: Send;
+        A: Into<net::SocketAddr> + Send + Sync;
 }
 
 pub trait TcpStream: AsyncRead + AsyncWrite {

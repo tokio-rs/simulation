@@ -1,5 +1,4 @@
 use futures::Poll;
-use pin_project::pin_project;
 use std::{io, pin::Pin, sync::Arc, task::Context};
 use tokio::io::{AsyncRead, AsyncWrite};
 use try_lock::TryLock;

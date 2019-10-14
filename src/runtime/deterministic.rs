@@ -1,16 +1,11 @@
 use crate::{runtime::Error, Environment};
 use async_trait::async_trait;
-use futures::{Future, FutureExt};
+use futures::Future;
+use rand::{rngs, Rng};
 use std::{
     io,
-    net::ToSocketAddrs,
-    pin::Pin,
-    sync::Arc,
-    task::Context,
     time::{Duration, Instant},
 };
-
-use rand::{rngs, Rng};
 use tokio_executor::current_thread::{CurrentThread, TaskExecutor};
 use tokio_net::driver::Reactor;
 use tokio_timer::timer;
@@ -101,19 +96,17 @@ impl Environment for DeterministicRuntimeHandle {
     fn timeout<T>(&self, value: T, timeout: Duration) -> tokio::timer::Timeout<T> {
         self.scheduler_rng.timer_handle.timeout(value, timeout)
     }
-    async fn bind<'a, A>(&'a self, addrs: A) -> Result<Self::TcpListener, io::Error>
+    async fn bind<'a, A>(&'a self, addr: A) -> Result<Self::TcpListener, io::Error>
     where
-        A: ToSocketAddrs + Send,
-        A::Iter: Send
+        A: Into<std::net::SocketAddr> + Send + Sync,
     {
-        self.network.bind(addrs).await
+        self.network.bind(addr).await
     }
-    async fn connect<'a, A>(&'a self, addrs: A) -> Result<Self::TcpStream, io::Error>
+    async fn connect<'a, A>(&'a self, addr: A) -> Result<Self::TcpStream, io::Error>
     where
-        A: ToSocketAddrs + Send,
-        A::Iter: Send
+        A: Into<std::net::SocketAddr> + Send + Sync,
     {
-        self.network.connect(addrs).await
+        self.network.connect(addr).await
     }
 }
 
@@ -212,7 +205,6 @@ impl DeterministicRuntime {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::time;
 
     #[test]
     /// Test that delays accurately advance the clock.    

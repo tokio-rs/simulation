@@ -1,5 +1,5 @@
 use futures::Poll;
-use std::{io, net, pin::Pin, task::Context};
+use std::{io, net, task::Context};
 
 impl crate::TcpStream for tokio::net::TcpStream {
     fn local_addr(&self) -> Result<net::SocketAddr, io::Error> {
@@ -18,7 +18,7 @@ impl crate::TcpListener for tokio::net::TcpListener {
     fn local_addr(&self) -> Result<net::SocketAddr, io::Error> {
         self.local_addr()
     }
-    fn poll_accept(&mut self, cx: &mut Context<'_>) -> Poll<Result<Self::Stream, io::Error>> {
+    fn poll_accept(&mut self, _: &mut Context<'_>) -> Poll<Result<Self::Stream, io::Error>> {
         unimplemented!()
     }
 }
