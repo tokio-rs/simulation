@@ -144,18 +144,18 @@ impl AsyncWrite for ServerSocket {
 #[cfg(test)]
 mod test {
     use super::*;
-    use tokio::io::{AsyncReadExt, AsyncWriteExt};
-    use futures::{StreamExt, SinkExt};
     use crate::Environment;
+    use futures::{SinkExt, StreamExt};
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
     async fn pong_server(server: ServerSocket) {
-        let mut transport = tokio::codec::Framed::new(server, tokio::codec::LinesCodec::new());        
+        let mut transport = tokio::codec::Framed::new(server, tokio::codec::LinesCodec::new());
         while let Some(Ok(ping)) = transport.next().await {
             assert_eq!(String::from("ping"), ping);
             transport.send(String::from("pong")).await.unwrap();
         }
     }
-    
+
     #[test]
     fn pingpong() {
         let mut runtime = crate::DeterministicRuntime::new().unwrap();
@@ -167,8 +167,8 @@ mod test {
             for _ in 0..100 {
                 transport.send(String::from("ping")).await.unwrap();
                 let result = transport.next().await.unwrap().unwrap();
-                assert_eq!(result, String::from("pong"));            
-            }            
+                assert_eq!(result, String::from("pong"));
+            }
         });
     }
 }

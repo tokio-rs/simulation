@@ -4,7 +4,6 @@ use std::{collections::VecDeque, io, net, num, pin::Pin, sync::Arc, task::Contex
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio_sync::AtomicWaker;
 
-
 #[derive(Debug)]
 pub(crate) struct Pipe {
     env: crate::DeterministicRuntimeHandle,
@@ -86,7 +85,7 @@ impl AsyncWrite for Pipe {
         cx: &mut Context<'_>,
         buf: &[u8],
     ) -> Poll<Result<usize, io::Error>> {
-        if self.shutdown {            
+        if self.shutdown {
             return Poll::Ready(Err(io::ErrorKind::BrokenPipe.into()));
         }
 
@@ -122,15 +121,12 @@ impl AsyncWrite for Pipe {
         }
     }
     fn poll_flush(self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<Result<(), io::Error>> {
-        if self.shutdown {            
+        if self.shutdown {
             return Poll::Ready(Err(io::ErrorKind::BrokenPipe.into()));
         }
         Poll::Ready(Ok(()))
     }
-    fn poll_shutdown(
-        mut self: Pin<&mut Self>,
-        _: &mut Context<'_>,
-    ) -> Poll<Result<(), io::Error>> {        
+    fn poll_shutdown(mut self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<Result<(), io::Error>> {
         self.shutdown = true;
         self.waker.wake();
         Poll::Ready(Ok(()))
@@ -178,12 +174,19 @@ mod tests {
         let handle = runtime.handle();
         let rw = Pipe::new(handle.clone());
         runtime.block_on(async {
-            let (mut r, mut w) = tokio::io::split(rw);            
-            w.write("foo".as_bytes()).await.unwrap();            
-            w.shutdown().await.unwrap(); 
-            assert!(w.write_all("foo".as_bytes()).await.is_err(), "expected write to fail after shutdown");
-            let mut target = vec![0;0];
-            assert_eq!(r.read(&mut target[..]).await.unwrap(), 0, "expected to read 0 bytes from shutdown pipe");
+            let (mut r, mut w) = tokio::io::split(rw);
+            w.write("foo".as_bytes()).await.unwrap();
+            w.shutdown().await.unwrap();
+            assert!(
+                w.write_all("foo".as_bytes()).await.is_err(),
+                "expected write to fail after shutdown"
+            );
+            let mut target = vec![0; 0];
+            assert_eq!(
+                r.read(&mut target[..]).await.unwrap(),
+                0,
+                "expected to read 0 bytes from shutdown pipe"
+            );
         })
     }
 }
