@@ -1,19 +1,23 @@
 //! Demonstrates using the simulation framework to find a race condition in a distributed system.
 //! The particular race condition is a message reordering issue between two processes. A central
-//! banking server is in charge of maintaining a users balance, but two seperate ATM's are attempting
-//! to withdraw money via a simple protocol where balance is checked before a withdraw is issued.
-//!
-//! Periodically, money is deposited into the account
+//! banking server is in charge of maintaining the balance of an account. Alice and Bob both need
+//! to make several withdrawals from their shared account.
 //!
 //! The system demonstrated here is composed of 3 connected components.
 //! 1. A banking server, which maintains the current balance for a users account.
-//! 2. An ATM process, which
+//! 2. An ATM process for Alice, which attempts to withdraw 1 dollar every 500ms.
+//! 3. An ATM process for Bob, which attempts to withdraw 2 dollars every 200ms.
 
 use futures::{channel::oneshot, SinkExt, StreamExt};
 use simulation::{
     DeterministicRuntime, DeterministicRuntimeHandle, Environment, TcpListener, TcpStream,
 };
-use std::sync::Arc;
+use std::{
+    net::Ipv4Addr,
+    net::{IpAddr, SocketAddr},
+    sync::Arc,
+    time::Duration,
+};
 use tokio::codec::{Framed, LinesCodec};
 
 #[derive(Debug)]
@@ -68,10 +72,13 @@ impl BankOperations {
     }
 }
 
-async fn banking_server(handle: DeterministicRuntimeHandle, bind_addr: std::net::SocketAddr, accepting: oneshot::Sender<bool>) {
-    let user_balance = std::sync::Arc::new(std::sync::Mutex::new(0usize));
-    
-    
+async fn banking_server(
+    handle: DeterministicRuntimeHandle,
+    bind_addr: std::net::SocketAddr,
+    accepting: oneshot::Sender<bool>,
+) {
+    let user_balance = std::sync::Arc::new(std::sync::Mutex::new(100usize));
+
     let mut listener = handle.bind(bind_addr).await.unwrap();
     accepting.send(true).unwrap();
 
@@ -93,6 +100,7 @@ async fn banking_server(handle: DeterministicRuntimeHandle, bind_addr: std::net:
                     }
                     BankOperations::Withdraw { amount } => {
                         let mut lock = balance_handle.lock().unwrap();
+                        assert!(*lock > 0, "overdraft detected!");
                         *lock -= amount;
                     }
                     BankOperations::BalanceRequest => {
@@ -113,24 +121,75 @@ async fn banking_server(handle: DeterministicRuntimeHandle, bind_addr: std::net:
     }
 }
 
-fn main() {
-    let mut runtime = DeterministicRuntime::new_with_seed(10).unwrap();
-    let handle = runtime.handle();
-    let bind_addr = std::net::SocketAddr::new(std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST), 9092);
+/// atm starts a process with withdraws `withdraw` dollars from the bank every `period`.
+async fn atm<E>(handle: E, period: Duration, withdraw: usize, socket: E::TcpStream)
+where
+    E: simulation::Environment,
+{
+    let mut transport = Framed::new(socket, LinesCodec::new());
+    loop {
+        // first make a balance request
+        transport
+            .send(BankOperations::BalanceRequest.to_message())
+            .await
+            .unwrap();
+        // retrieve balance response
+        if let BankOperations::BalanceResponse { balance } =
+            BankOperations::parse(transport.next().await.unwrap().unwrap())
+        {
+            println!("balance response {}", balance);
+            // if we have money in the account, withdraw it!
+            if balance > withdraw {
+                transport
+                    .send(BankOperations::Withdraw { amount: withdraw }.to_message())
+                    .await
+                    .unwrap();
+            } else {
+                println!("done!");
+                break;
+            }
+        } else {
+            panic!("unexpected response")
+        }
+        // sleep until the next withdraw.
+        handle.delay_from(period).await;
+    }
+}
 
-    runtime.block_on(async {
-        let server_handle = handle.clone();
-        // setup a channel to notify us when a bind happens
-        let (bind_tx, bind_rx) = oneshot::channel();
-        handle.spawn(async move {
-            banking_server(server_handle, bind_addr.clone(), bind_tx).await;
+
+/// Run our simulated bank with various seeds from 1..10
+/// to find a seed which causes an overdraft.
+/// 
+/// Particularly, seed #2 causes a message ordering which results 
+/// in an overdraft.
+fn main() {
+    for x in 0..10 {
+        println!("--- seed --- {}", x);
+        let mut runtime = DeterministicRuntime::new_with_seed(x).unwrap();
+        let handle = runtime.handle();
+        let bank_addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 9092);
+
+        runtime.block_on(async {
+            let server_handle = handle.clone();
+            // setup a channel to notify us when a bind happens
+            let (bind_tx, bind_rx) = oneshot::channel();
+            handle.spawn(async move {
+                banking_server(server_handle, bank_addr.clone(), bind_tx).await;
+            });
+            bind_rx.await.unwrap();
+
+            let socket = handle.connect(bank_addr).await.unwrap();
+            let r1 = simulation::spawn_with_result(
+                &handle,
+                atm(handle.clone(), Duration::from_millis(200), 2, socket),
+            );
+            let socket = handle.connect(bank_addr).await.unwrap();
+            let r2 = simulation::spawn_with_result(
+                &handle,
+                atm(handle.clone(), Duration::from_millis(500), 1, socket),
+            );
+            r1.await;
+            r2.await;
         });
-        bind_rx.await.unwrap();        
-        let socket = handle.connect(bind_addr).await.unwrap();
-        let mut transport = Framed::new(socket, LinesCodec::new());
-        transport.send(String::from("deposit 100")).await.unwrap();
-        transport.send(String::from("balancereq")).await.unwrap();
-        let response = transport.next().await.unwrap().unwrap();
-        println!("response {}", response);
-    });
+    }
 }

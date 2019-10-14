@@ -1,10 +1,10 @@
 use crate::runtime::Error;
 use async_trait::async_trait;
 use futures::Future;
+use std::net::SocketAddr;
 use std::{io, time};
 use tokio_executor::current_thread;
 use tokio_net::driver::Reactor;
-use std::net::SocketAddr;
 use tokio_timer::{clock::Clock, timer};
 mod net;
 #[derive(Debug, Clone)]
