@@ -1,6 +1,6 @@
-use bytes::{Buf, Bytes, BytesMut, IntoBuf};
-use futures::{channel::mpsc, stream::FusedStream, FutureExt, Poll, StreamExt};
-use std::{collections::VecDeque, io, net, num, pin::Pin, sync::Arc, task::Context, time};
+use bytes::{Buf, BytesMut, IntoBuf};
+use futures::{FutureExt, Poll};
+use std::{io, pin::Pin, task::Context, time};
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio_sync::AtomicWaker;
 

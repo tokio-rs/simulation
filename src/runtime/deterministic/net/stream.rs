@@ -3,38 +3,23 @@ use futures::Poll;
 use std::{io, net, pin::Pin, task::Context};
 use tokio::io::{AsyncRead, AsyncWrite};
 
-pub struct InMemoryTcpStream<S> {
-    local_addr: net::SocketAddr,
-    peer_addr: net::SocketAddr,
+pub struct MemoryTcpStream<S> {
     socket: S,
 }
 
-impl InMemoryTcpStream<ClientSocket> {
-    pub(crate) fn new_client(
-        socket: ClientSocket,
-        local_addr: net::SocketAddr,
-        peer_addr: net::SocketAddr,
-    ) -> Self {
-        Self {
-            local_addr,
-            peer_addr,
-            socket,
-        }
+impl MemoryTcpStream<ClientSocket> {
+    pub(crate) fn new_client(socket: ClientSocket) -> Self {
+        Self { socket }
     }
 }
 
-impl InMemoryTcpStream<ServerSocket> {
-    pub(crate) fn new_server(socket: ServerSocket, local_addr: net::SocketAddr) -> Self {
-        Self {
-            local_addr: local_addr.clone(),
-            // TODO: this is definitely wrong
-            peer_addr: local_addr,
-            socket,
-        }
+impl MemoryTcpStream<ServerSocket> {
+    pub(crate) fn new_server(socket: ServerSocket) -> Self {
+        Self { socket }
     }
 }
 
-impl<S> AsyncRead for InMemoryTcpStream<S>
+impl<S> AsyncRead for MemoryTcpStream<S>
 where
     S: AsyncRead + Unpin + Send,
 {
@@ -48,7 +33,7 @@ where
         socket.poll_read(cx, buf)
     }
 }
-impl<S> AsyncWrite for InMemoryTcpStream<S>
+impl<S> AsyncWrite for MemoryTcpStream<S>
 where
     S: AsyncWrite + Unpin + Send,
 {
@@ -76,12 +61,12 @@ where
     }
 }
 
-impl crate::TcpStream for InMemoryTcpStream<ClientSocket> {
+impl crate::TcpStream for MemoryTcpStream<ClientSocket> {
     fn local_addr(&self) -> Result<net::SocketAddr, io::Error> {
-        Ok(self.local_addr.clone())
+        unimplemented!()
     }
     fn peer_addr(&self) -> Result<net::SocketAddr, io::Error> {
-        Ok(self.peer_addr.clone())
+        unimplemented!()
     }
     fn shutdown(&self) -> Result<(), io::Error> {
         self.socket.shutdown();
@@ -89,12 +74,12 @@ impl crate::TcpStream for InMemoryTcpStream<ClientSocket> {
     }
 }
 
-impl crate::TcpStream for InMemoryTcpStream<ServerSocket> {
+impl crate::TcpStream for MemoryTcpStream<ServerSocket> {
     fn local_addr(&self) -> Result<net::SocketAddr, io::Error> {
-        Ok(self.local_addr.clone())
+        unimplemented!()
     }
     fn peer_addr(&self) -> Result<net::SocketAddr, io::Error> {
-        Ok(self.peer_addr.clone())
+        unimplemented!()
     }
     fn shutdown(&self) -> Result<(), io::Error> {
         self.socket.shutdown();

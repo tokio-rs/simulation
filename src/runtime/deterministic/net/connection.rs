@@ -1,7 +1,6 @@
-use super::{ClientSocket, ServerSocket};
-use futures::{channel::mpsc, SinkExt};
-use std::{collections::HashMap, io, net, num, sync::Arc};
-use try_lock::TryLock;
+use super::ServerSocket;
+use futures::channel::mpsc;
+use std::{collections::HashMap, io, num};
 
 #[derive(Debug)]
 pub(crate) struct Connections {

@@ -17,7 +17,7 @@ mod time;
 /// a runtime. It is seperated out from the DeterminsticRuntimeHandle to allow building higher
 /// order deterministic components, like networking.
 #[derive(Debug, Clone)]
-pub(crate) struct DeterministicRuntimeSchedulerRng {
+pub struct DeterministicRuntimeSchedulerRng {
     reactor_handle: tokio_net::driver::Handle,
     executor_handle: tokio_executor::current_thread::Handle,
     clock: time::MockClock,
@@ -68,15 +68,15 @@ pub struct DeterministicRuntimeHandle {
 
 impl DeterministicRuntimeHandle {
     /// Returns the backing DeterministicRuntimeSchedulerRng which contains a subset of runtime functionality.
-    pub(crate) fn scheduler_rng(&self) -> DeterministicRuntimeSchedulerRng {
+    pub fn scheduler_rng(&self) -> DeterministicRuntimeSchedulerRng {
         self.scheduler_rng.clone()
     }
 }
 
 #[async_trait]
 impl Environment for DeterministicRuntimeHandle {
-    type TcpStream = net::InMemoryTcpStream<net::ClientSocket>;
-    type TcpListener = net::InMemoryListener;
+    type TcpStream = net::MemoryTcpStream<net::ClientSocket>;
+    type TcpListener = net::MemoryListener;
 
     fn spawn<F>(&self, future: F)
     where

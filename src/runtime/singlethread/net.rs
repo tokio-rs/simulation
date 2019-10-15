@@ -1,5 +1,5 @@
-use futures::{Future, FutureExt, Poll};
-use std::{io, net, task::Context};
+use async_trait::async_trait;
+use std::{io, net};
 
 impl crate::TcpStream for tokio::net::TcpStream {
     fn local_addr(&self) -> Result<net::SocketAddr, io::Error> {
@@ -13,14 +13,19 @@ impl crate::TcpStream for tokio::net::TcpStream {
     }
 }
 
+#[async_trait]
 impl crate::TcpListener for tokio::net::TcpListener {
     type Stream = tokio::net::TcpStream;
-    fn local_addr(&self) -> Result<net::SocketAddr, io::Error> {
-        self.local_addr()
+    async fn accept(&mut self) -> Result<(Self::Stream, net::SocketAddr), io::Error> {
+        tokio::net::TcpListener::accept(self).await
     }
-    fn poll_accept(&mut self, cx: &mut Context<'_>) -> Poll<Result<Self::Stream, io::Error>> {
-        let fut = tokio::net::TcpListener::accept(self);
-        futures::pin_mut!(fut);
-        Poll::Ready(futures::ready!(fut.poll(cx)).map(|(sock, _)| sock))
+    fn local_addr(&self) -> Result<net::SocketAddr, io::Error> {
+        tokio::net::TcpListener::local_addr(self)
+    }
+    fn ttl(&self) -> io::Result<u32> {
+        tokio::net::TcpListener::ttl(self)
+    }
+    fn set_ttl(&self, ttl: u32) -> io::Result<()> {
+        tokio::net::TcpListener::set_ttl(self, ttl)
     }
 }

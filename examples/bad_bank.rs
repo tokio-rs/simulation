@@ -10,7 +10,7 @@
 
 use futures::{channel::oneshot, SinkExt, StreamExt};
 use simulation::{
-    DeterministicRuntime, DeterministicRuntimeHandle, Environment, TcpListener, SingleThreadedRuntime
+    DeterministicRuntime, Environment, TcpListener,
 };
 use std::{
     net::Ipv4Addr,
@@ -76,13 +76,15 @@ async fn banking_server<E>(
     handle: E,
     bind_addr: std::net::SocketAddr,
     accepting: oneshot::Sender<bool>,
-) where E: Environment {
+) where
+    E: Environment,
+{
     let user_balance = std::sync::Arc::new(std::sync::Mutex::new(100usize));
 
     let mut listener = handle.bind(bind_addr).await.unwrap();
     accepting.send(true).unwrap();
 
-    while let Ok(new_connection) = listener.accept().await {
+    while let Ok((new_connection, _)) = listener.accept().await {
         let framed_read = Framed::new(new_connection, LinesCodec::new());
         let (mut sink, mut stream) = framed_read.split();
 
@@ -99,7 +101,7 @@ async fn banking_server<E>(
                     BankOperations::Withdraw { amount } => {
                         let mut lock = balance_handle.lock().unwrap();
                         assert!(*lock > 0, "overdraft detected!");
-                        *lock -= amount;                        
+                        *lock -= amount;
                     }
                     BankOperations::BalanceRequest => {
                         let current_balance = {
@@ -134,14 +136,14 @@ where
         // retrieve balance response
         if let BankOperations::BalanceResponse { balance } =
             BankOperations::parse(transport.next().await.unwrap().unwrap())
-        {            
+        {
             // if we have money in the account, withdraw it!
             if balance > withdraw {
                 transport
                     .send(BankOperations::Withdraw { amount: withdraw }.to_message())
                     .await
                     .unwrap();
-            } else {                
+            } else {
                 break;
             }
         } else {
@@ -192,10 +194,14 @@ fn simulate(seed: u64) -> std::time::Duration {
 /// in an overdraft.
 fn main() {
     for seed in 0..10 {
-        println!("--- seed --- {}", seed);       
+        println!("--- seed --- {}", seed);
         let true_start_time = std::time::Instant::now();
         let simulation_duration = simulate(seed);
         let true_duration = std::time::Instant::now() - true_start_time;
-        println!("real-time: {:?}\n simulated-time: {:?}", true_duration, simulation_duration)
+        println!(
+            "real-time: {:?}\n simulated-time: {:?}",
+            true_duration, simulation_duration
+        )
     }
 }
+

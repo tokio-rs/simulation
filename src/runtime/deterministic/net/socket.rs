@@ -1,10 +1,11 @@
 use futures::Poll;
-use std::{io, pin::Pin, sync::Arc, task::Context};
+use std::{io, net, pin::Pin, sync::Arc, task::Context};
 use tokio::io::{AsyncRead, AsyncWrite};
 use try_lock::TryLock;
 
 pub(crate) fn new_pair(
     env: crate::DeterministicRuntimeSchedulerRng,
+    server_addr: net::SocketAddr,
 ) -> (ClientSocket, ServerSocket) {
     let inner = Inner {
         client: super::Pipe::new(env.clone()),
@@ -16,6 +17,8 @@ pub(crate) fn new_pair(
     };
     let server = ServerSocket {
         inner: Arc::clone(&state),
+        local_addr: server_addr,
+        peer_addr: net::SocketAddr::new(net::IpAddr::V4(net::Ipv4Addr::LOCALHOST), 0),
     };
     (client, server)
 }
@@ -98,16 +101,24 @@ impl AsyncWrite for ClientSocket {
 #[derive(Debug)]
 pub struct ServerSocket {
     inner: State,
+    local_addr: net::SocketAddr,
+    peer_addr: net::SocketAddr,
 }
 
 impl ServerSocket {
-    pub(crate) fn shutdown(&self) {
+    pub fn shutdown(&self) {
         loop {
             if let Some(mut state) = self.inner.try_lock() {
                 state.client.shutdown();
                 state.server.shutdown();
             }
         }
+    }
+    pub fn local_addr(&self) -> net::SocketAddr {
+        self.local_addr
+    }
+    pub fn peer_addr(&self) -> net::SocketAddr {
+        self.peer_addr
     }
 }
 
@@ -169,7 +180,6 @@ mod test {
     use super::*;
     use crate::Environment;
     use futures::{SinkExt, StreamExt};
-    use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
     async fn pong_server(server: ServerSocket) {
         let mut transport = tokio::codec::Framed::new(server, tokio::codec::LinesCodec::new());
@@ -184,7 +194,8 @@ mod test {
         let mut runtime = crate::DeterministicRuntime::new().unwrap();
         let handle = runtime.handle();
         runtime.block_on(async {
-            let (client, server) = new_pair(handle.scheduler_rng());
+            let (client, server) =
+                new_pair(handle.scheduler_rng(), net::SocketAddr::new(net::Ipv4Addr::LOCALHOST.into(), 9092));
             handle.spawn(pong_server(server));
             let mut transport = tokio::codec::Framed::new(client, tokio::codec::LinesCodec::new());
             for _ in 0..100 {
