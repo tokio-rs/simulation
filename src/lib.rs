@@ -48,8 +48,8 @@ use tokio::io::{AsyncRead, AsyncWrite};
 
 #[async_trait]
 pub trait Environment: Unpin + Sized + Clone + Send {
-    type TcpStream: TcpStream + Send;
-    type TcpListener: TcpListener + Send;
+    type TcpStream: TcpStream + Send + 'static;
+    type TcpListener: TcpListener + Send + 'static;
 
     fn spawn<F>(&self, future: F)
     where
