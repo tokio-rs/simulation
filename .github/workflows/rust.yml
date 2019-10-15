@@ -4,12 +4,12 @@ on: [push]
 
 jobs:
   build:
-
     runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@v1
-    - name: Build
-      run: cargo build --verbose
-    - name: Run tests
-      run: cargo test --verbose
+      - uses: actions/checkout@v1
+      - uses: actions-rs/cargo@v1
+        name: Run Tests
+        with:
+          toolchain: nightly
+          command: test
