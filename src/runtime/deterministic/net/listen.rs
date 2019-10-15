@@ -1,7 +1,7 @@
 use crate::runtime::deterministic::net::{MemoryTcpStream, ServerSocket};
 use async_trait::async_trait;
-use futures::{channel::mpsc, future::poll_fn, Poll, StreamExt};
-use std::{io, net, net::SocketAddr, pin::Pin, task::Context};
+use futures::{channel::mpsc, future::poll_fn, Poll, StreamExt, FutureExt};
+use std::{io, net, net::SocketAddr, pin::Pin, task::Context, time};
 
 /// An I/O object mocking a TCP socket listening for incoming connections.
 ///
@@ -14,14 +14,18 @@ pub struct MemoryListener {
     /// The local address of this MemoryListener
     local_addr: net::SocketAddr,
     ttl: std::sync::atomic::AtomicU32,
+    delay: Option<tokio::timer::Delay>,
+    env: crate::DeterministicRuntimeSchedulerRng
 }
 
 impl MemoryListener {
-    pub fn new(sockets_chan: mpsc::Receiver<ServerSocket>, addr: net::SocketAddr) -> Self {
+    pub fn new(env: crate::DeterministicRuntimeSchedulerRng, sockets_chan: mpsc::Receiver<ServerSocket>, addr: net::SocketAddr) -> Self {
         Self {
             new_sockets: sockets_chan,
             local_addr: addr,
             ttl: std::sync::atomic::AtomicU32::new(std::u32::MAX),
+            delay: None,
+            env,
         }
     }
 }
@@ -62,6 +66,20 @@ impl MemoryListener {
         &mut self,
         cx: &mut Context<'_>,
     ) -> Poll<io::Result<(MemoryTcpStream<ServerSocket>, SocketAddr)>> {
+        if let None = self.delay.take() {
+            if let Some(new_delay) = self.env.maybe_random_delay(0.10, time::Duration::from_millis(100), time::Duration::from_millis(10000)) {
+                self.delay.replace(new_delay);
+            }        
+        }
+        // if there was a previously injected delay, pause for it
+        if let Some(mut delay) = self.delay.take() {
+            if let Poll::Pending = delay.poll_unpin(cx) {
+                self.delay.replace(delay);
+            }
+        }
+        // if there was no previously injected delay, roll the dice and set it
+
+        
         if let Some(next) = futures::ready!(self.new_sockets.poll_next_unpin(cx)) {
             let addr = next.peer_addr();
             let stream = MemoryTcpStream::new_server(next);
@@ -83,7 +101,7 @@ impl MemoryListener {
     }
     pub fn set_ttl(&self, ttl: u32) -> io::Result<()> {
         self.ttl.store(ttl, std::sync::atomic::Ordering::SeqCst);
-        Ok(())
+        Ok(())        
     }
 }
 

@@ -63,7 +63,7 @@ impl DeterministicRuntimeSchedulerRng {
 #[derive(Debug, Clone)]
 pub struct DeterministicRuntimeHandle {
     scheduler_rng: DeterministicRuntimeSchedulerRng,
-    network: net::InMemoryNetwork,
+    network: net::MemoryNetwork,
 }
 
 impl DeterministicRuntimeHandle {
@@ -143,7 +143,7 @@ impl DeterministicRuntime {
             rng: rng_seed.map(|s| rand::SeedableRng::seed_from_u64(s)),
         };
 
-        let network = net::InMemoryNetwork::new(scheduler_rng.clone());
+        let network = net::MemoryNetwork::new(scheduler_rng.clone());
         let handle = DeterministicRuntimeHandle {
             scheduler_rng,
             network,
