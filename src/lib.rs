@@ -47,7 +47,6 @@ pub use runtime::{
 use tokio::io::{AsyncRead, AsyncWrite};
 mod runtime;
 
-
 #[async_trait]
 pub trait Environment: Unpin + Sized + Clone + Send {
     type TcpStream: TcpStream + Send + 'static;

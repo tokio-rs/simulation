@@ -1,12 +1,12 @@
 use bytes::{Buf, BytesMut, IntoBuf};
 use futures::{FutureExt, Poll};
-use std::{io, pin::Pin, task::Context, time};
+use std::{io, pin::Pin, task::Context};
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio_sync::AtomicWaker;
 
 #[derive(Debug)]
 pub(crate) struct Pipe {
-    env: crate::DeterministicRuntimeSchedulerRng,
+    faults: super::NetworkFaults,
     read_delay: Option<tokio::timer::Delay>,
     write_delay: Option<tokio::timer::Delay>,
     buf: Option<BytesMut>,
@@ -15,9 +15,9 @@ pub(crate) struct Pipe {
 }
 
 impl Pipe {
-    pub(crate) fn new(env: crate::DeterministicRuntimeSchedulerRng) -> Self {
+    pub(crate) fn new(faults: super::NetworkFaults) -> Self {
         Self {
-            env,
+            faults,
             read_delay: None,
             write_delay: None,
             buf: None,
@@ -51,11 +51,7 @@ impl AsyncRead for Pipe {
         } else {
             // no poll delay found, lets roll for another one with a 25% probability of being delayed on the next poll
             // for anywhere from 100 to 5000 milliseconds.
-            if let Some(mut new_delay) = self.env.maybe_random_delay(
-                0.25,
-                time::Duration::from_millis(100),
-                time::Duration::from_millis(5000),
-            ) {
+            if let Some(mut new_delay) = self.faults.socket_read_delay() {
                 if let Poll::Pending = new_delay.poll_unpin(cx) {
                     self.read_delay.replace(new_delay);
                     return Poll::Pending;
@@ -103,11 +99,7 @@ impl AsyncWrite for Pipe {
         } else {
             // no poll delay found, lets roll for another one with a 25% probability of being delayed on the next poll
             // for anywhere from 100 to 5000 milliseconds.
-            if let Some(mut new_delay) = self.env.maybe_random_delay(
-                0.25,
-                time::Duration::from_millis(100),
-                time::Duration::from_millis(5000),
-            ) {
+            if let Some(mut new_delay) = self.faults.socket_write_delay() {
                 if let Poll::Pending = new_delay.poll_unpin(cx) {
                     self.write_delay.replace(new_delay);
                     return Poll::Pending;
@@ -145,13 +137,13 @@ mod tests {
 
     #[test]
     /// Tests that a pipe can transport values, also demonstrates the probabilistic delay/fault injection capabilites
-    /// of the pipe. A seed of 40 will make this test fail for example.
+    /// of the pipe. 
     fn bounded_pipe() {
-        let mut runtime = crate::DeterministicRuntime::new_with_seed(2).unwrap();
+        let mut runtime = crate::DeterministicRuntime::new_with_seed(3).unwrap();
         let handle = runtime.handle();
         runtime.block_on(async {
             let time_before = handle.now();
-            let rw = Pipe::new(handle.scheduler_rng());
+            let rw = Pipe::new(handle.network_faults());
             let (mut r, mut w) = tokio::io::split(rw);
             handle.spawn(async move {
                 w.write_all("foo".as_bytes()).await.unwrap();
@@ -164,7 +156,7 @@ mod tests {
             let time_after = handle.now();
             assert!(
                 time_after > time_before,
-                "expected with a seed of 2, the timer would advance"
+                "expected with a seed of 3, the timer would advance"
             );
         })
     }
@@ -176,7 +168,7 @@ mod tests {
     fn shutdown_pipe() {
         let mut runtime = crate::DeterministicRuntime::new().unwrap();
         let handle = runtime.handle();
-        let rw = Pipe::new(handle.scheduler_rng());
+        let rw = Pipe::new(handle.network_faults());
         runtime.block_on(async {
             let (mut r, mut w) = tokio::io::split(rw);
             w.write("foo".as_bytes()).await.unwrap();

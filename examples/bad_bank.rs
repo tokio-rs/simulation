@@ -9,9 +9,7 @@
 //! 3. An ATM process for Bob, which attempts to withdraw 2 dollars every 200ms.
 
 use futures::{channel::oneshot, SinkExt, StreamExt};
-use simulation::{
-    DeterministicRuntime, Environment, TcpListener,
-};
+use simulation::{DeterministicRuntime, Environment, TcpListener};
 use std::{
     net::Ipv4Addr,
     net::{IpAddr, SocketAddr},
@@ -190,8 +188,8 @@ fn simulate(seed: u64) -> std::time::Duration {
 /// Run our simulated bank with various seeds from 1..10
 /// to find a seed which causes an overdraft.
 ///
-/// Particularly, seed #2 causes a message ordering which results
-/// in an overdraft.
+/// Particularly, seed #1 causes a message ordering which results
+/// in an overdraft, while seed #0 does not.
 fn main() {
     for seed in 0..10 {
         println!("--- seed --- {}", seed);
@@ -204,4 +202,3 @@ fn main() {
         )
     }
 }
-

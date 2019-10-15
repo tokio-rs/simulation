@@ -4,12 +4,12 @@ use tokio::io::{AsyncRead, AsyncWrite};
 use try_lock::TryLock;
 
 pub(crate) fn new_pair(
-    env: crate::DeterministicRuntimeSchedulerRng,
+    faults: super::NetworkFaults,
     server_addr: net::SocketAddr,
 ) -> (ClientSocket, ServerSocket) {
     let inner = Inner {
-        client: super::Pipe::new(env.clone()),
-        server: super::Pipe::new(env.clone()),
+        client: super::Pipe::new(faults.clone()),
+        server: super::Pipe::new(faults.clone()),
     };
     let state = Arc::new(TryLock::new(inner));
     let client = ClientSocket {
@@ -194,8 +194,10 @@ mod test {
         let mut runtime = crate::DeterministicRuntime::new().unwrap();
         let handle = runtime.handle();
         runtime.block_on(async {
-            let (client, server) =
-                new_pair(handle.scheduler_rng(), net::SocketAddr::new(net::Ipv4Addr::LOCALHOST.into(), 9092));
+            let (client, server) = new_pair(
+                handle.network_faults(),
+                net::SocketAddr::new(net::Ipv4Addr::LOCALHOST.into(), 9092),
+            );
             handle.spawn(pong_server(server));
             let mut transport = tokio::codec::Framed::new(client, tokio::codec::LinesCodec::new());
             for _ in 0..100 {

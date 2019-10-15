@@ -1,16 +1,16 @@
 //! This module provides a deterministic runtime for Rust. [`DeterministicRuntime`] provides
-//! a single threaded runtime with a mocked notion of time. This allows for an executor to 
+//! a single threaded runtime with a mocked notion of time. This allows for an executor to
 //! advance the clock when there is no more work to do.
-//! 
+//!
 //! `DeterministicRuntimeHandle` allows for creating things like TCP connections or Delays which
 //! are backed by deterministic implementations. A seedable RNG is also provided to facilitate
 //! probabilistic fault injection.
-//! 
+//!
 //! There are two types of determinstic components which are both wrapped by the `DeterministicRuntimeHandle`.
 //! The `DeterministicRuntimeSchedulerRng` contains base components which need to be shared between simulated
-//! systems and higher order components alike. `DeterministicRuntimeSchedulerRng` contains the facilities for 
+//! systems and higher order components alike. `DeterministicRuntimeSchedulerRng` contains the facilities for
 //! simulating scheduling and time.
-//! 
+//!
 //! `DeterministicRuntimeHandle` wraps the `DeterministicRuntimeSchedulerRng` and further provides deterministic
 //! networking with probabilistic fault injection.
 use crate::{runtime::Error, Environment};
@@ -19,20 +19,19 @@ use futures::Future;
 use rand::{rngs, Rng};
 use std::{
     io,
+    sync::Arc,
     time::{Duration, Instant},
 };
 use tokio_executor::current_thread::{CurrentThread, TaskExecutor};
 use tokio_net::driver::Reactor;
 use tokio_timer::timer;
+use try_lock::TryLock;
 
 mod net;
 mod time;
 
-/// DeterministicRuntimeSchedulerRng contains the base deterministic components for constructing
-/// a runtime. It is seperated out from the DeterminsticRuntimeHandle to allow building higher
-/// order deterministic components, like networking.
 #[derive(Debug, Clone)]
-pub struct DeterministicRuntimeSchedulerRng {
+pub struct DeterministicRuntimeSchedulerRngState {
     reactor_handle: tokio_net::driver::Handle,
     executor_handle: tokio_executor::current_thread::Handle,
     clock: time::MockClock,
@@ -40,7 +39,15 @@ pub struct DeterministicRuntimeSchedulerRng {
     rng: Option<rngs::SmallRng>,
 }
 
-impl DeterministicRuntimeSchedulerRng {
+/// DeterministicRuntimeSchedulerRng contains the base deterministic components for constructing
+/// a runtime. It is seperated out from the DeterminsticRuntimeHandle to allow building higher
+/// order deterministic components, like networking.
+#[derive(Debug, Clone)]
+pub struct DeterministicRuntimeSchedulerRng {
+    state: Arc<TryLock<DeterministicRuntimeSchedulerRngState>>,
+}
+
+impl DeterministicRuntimeSchedulerRngState {
     /// Decides to preform an action based on the provided probability if there is an RNG seed
     /// provided to the backing DeterministicRuntime.
     /// If there is none, then this function will always return false.
@@ -52,26 +59,76 @@ impl DeterministicRuntimeSchedulerRng {
             } else {
                 return false;
             }
+        } else {
+            return false;
         }
-        return false;
     }
+}
+
+impl DeterministicRuntimeSchedulerRng {
+    fn new(
+        reactor_handle: tokio_net::driver::Handle,
+        executor_handle: tokio_executor::current_thread::Handle,
+        clock: time::MockClock,
+        timer_handle: timer::Handle,
+        rng: Option<rngs::SmallRng>,
+    ) -> Self {
+        let state = DeterministicRuntimeSchedulerRngState {
+            reactor_handle,
+            executor_handle,
+            clock,
+            timer_handle,
+            rng,
+        };
+        let state = Arc::new(TryLock::new(state));
+        Self { state }
+    }
+
     /// Returns a randomized delay between the provided from and to durations based on the provided probability of the delay
     /// occuring.
     pub(crate) fn maybe_random_delay(
-        &mut self,
+        &self,
         probability: f32,
         from: Duration,
         to: Duration,
     ) -> Option<tokio::timer::Delay> {
-        if self.should_perform_random_action(probability) {
-            if let Some(ref mut rng) = self.rng {
-                let duration = rng.gen_range(from.as_millis(), to.as_millis());
-                let duration = Duration::from_millis(duration as u64);
-                let delay = self.timer_handle.delay(self.clock.now() + duration);
-                return Some(delay);
+        loop {            
+            if let Some(mut lock) = self.state.try_lock() {
+                if lock.should_perform_random_action(probability) {
+                    if let Some(ref mut rng) = lock.rng {
+                        let duration = rng.gen_range(from.as_millis(), to.as_millis());
+                        let duration = Duration::from_millis(duration as u64);
+                        let delay = lock.timer_handle.delay(lock.clock.now() + duration);
+                        return Some(delay);
+                    }
+                    return None;
+                }
+                return None;
             }
         }
-        None
+    }
+
+    pub(crate) fn executor_handle(&self) -> tokio_executor::current_thread::Handle {
+        loop {            
+            if let Some(lock) = self.state.try_lock() {
+                return lock.executor_handle.clone();
+            }
+        }
+    }
+    pub(crate) fn clock(&self) -> time::MockClock {
+        loop {            
+            if let Some(lock) = self.state.try_lock() {
+                return lock.clock.clone();
+            }
+        }
+    }
+
+    pub(crate) fn timer_handle(&self) -> timer::Handle {
+        loop {
+            if let Some(lock) = self.state.try_lock() {
+                return lock.timer_handle.clone();
+            }
+        }
     }
 }
 
@@ -83,8 +140,8 @@ pub struct DeterministicRuntimeHandle {
 
 impl DeterministicRuntimeHandle {
     /// Returns the backing DeterministicRuntimeSchedulerRng which contains a subset of runtime functionality.
-    pub fn scheduler_rng(&self) -> DeterministicRuntimeSchedulerRng {
-        self.scheduler_rng.clone()
+    pub fn network_faults(&self) -> net::NetworkFaults {
+        self.network.network_faults()
     }
 }
 
@@ -98,18 +155,18 @@ impl Environment for DeterministicRuntimeHandle {
         F: Future<Output = ()> + Send + 'static,
     {
         self.scheduler_rng
-            .executor_handle
+            .executor_handle()
             .spawn(future)
             .expect("failed to spawn task")
     }
     fn now(&self) -> Instant {
-        self.scheduler_rng.clock.now()
+        self.scheduler_rng.clock().now()
     }
     fn delay(&self, deadline: Instant) -> tokio::timer::Delay {
-        self.scheduler_rng.timer_handle.delay(deadline)
+        self.scheduler_rng.timer_handle().delay(deadline)
     }
     fn timeout<T>(&self, value: T, timeout: Duration) -> tokio::timer::Timeout<T> {
-        self.scheduler_rng.timer_handle.timeout(value, timeout)
+        self.scheduler_rng.timer_handle().timeout(value, timeout)
     }
     async fn bind<'a, A>(&'a self, addr: A) -> Result<Self::TcpListener, io::Error>
     where
@@ -150,13 +207,13 @@ impl DeterministicRuntime {
         let timer_handle = timer.handle();
         let executor = CurrentThread::new_with_park(timer);
 
-        let scheduler_rng = DeterministicRuntimeSchedulerRng {
-            reactor_handle: reactor_handle.clone(),
-            executor_handle: executor.handle(),
-            clock: clock.clone(),
-            timer_handle: timer_handle.clone(),
-            rng: rng_seed.map(|s| rand::SeedableRng::seed_from_u64(s)),
-        };
+        let scheduler_rng = DeterministicRuntimeSchedulerRng::new(
+            reactor_handle.clone(),
+            executor.handle(),
+            clock.clone(),
+            timer_handle.clone(),
+            rng_seed.map(|s| rand::SeedableRng::seed_from_u64(s)),
+        );
 
         let network = net::MemoryNetwork::new(scheduler_rng.clone());
         let handle = DeterministicRuntimeHandle {
