@@ -1,3 +1,18 @@
+//! This module provides a deterministic runtime for Rust. [`DeterministicRuntime`] provides
+//! a single threaded runtime with a mocked notion of time. This allows for an executor to 
+//! advance the clock when there is no more work to do.
+//! 
+//! `DeterministicRuntimeHandle` allows for creating things like TCP connections or Delays which
+//! are backed by deterministic implementations. A seedable RNG is also provided to facilitate
+//! probabilistic fault injection.
+//! 
+//! There are two types of determinstic components which are both wrapped by the `DeterministicRuntimeHandle`.
+//! The `DeterministicRuntimeSchedulerRng` contains base components which need to be shared between simulated
+//! systems and higher order components alike. `DeterministicRuntimeSchedulerRng` contains the facilities for 
+//! simulating scheduling and time.
+//! 
+//! `DeterministicRuntimeHandle` wraps the `DeterministicRuntimeSchedulerRng` and further provides deterministic
+//! networking with probabilistic fault injection.
 use crate::{runtime::Error, Environment};
 use async_trait::async_trait;
 use futures::Future;

@@ -1,9 +1,10 @@
 use std::{
-    sync::{Arc, Mutex},
+    sync::Arc,
     time::{Duration, Instant},
 };
 use tokio_executor::park::{Park, Unpark};
 use tokio_timer::clock::{Clock, Now};
+use try_lock::TryLock;
 
 #[derive(Clone, Debug)]
 pub(crate) struct MockClock {
@@ -20,7 +21,7 @@ impl MockClock {
             base: Instant::now(),
             advance: Duration::from_millis(0),
         };
-        let state = Arc::new(Mutex::new(state));
+        let state = Arc::new(TryLock::new(state));
         let now = MockNow {
             inner: Arc::clone(&state),
         };
@@ -38,7 +39,11 @@ impl MockClock {
         )
     }
     pub(crate) fn now(&self) -> Instant {
-        self.inner.lock().unwrap().now()
+        loop {
+            if let Some(lock) = self.inner.try_lock() {
+                return lock.now();
+            }
+        }
     }
 
     pub(crate) fn get_clock(&self) -> Clock {
@@ -68,7 +73,7 @@ impl State {
     }
 }
 
-type Inner = Arc<Mutex<State>>;
+type Inner = Arc<TryLock<State>>;
 
 #[derive(Debug, Clone)]
 pub(crate) struct MockNow {
@@ -77,7 +82,11 @@ pub(crate) struct MockNow {
 
 impl Now for MockNow {
     fn now(&self) -> Instant {
-        self.inner.lock().unwrap().now()
+        loop {
+            if let Some(lock) = self.inner.try_lock() {
+                return lock.now();
+            }
+        }
     }
 }
 
@@ -104,8 +113,12 @@ where
         self.inner_park.park()
     }
     fn park_timeout(&mut self, duration: Duration) -> Result<(), Self::Error> {
-        self.inner.lock().unwrap().advance(duration);
-        self.inner_park.park_timeout(Duration::from_millis(0))
+        loop {
+            if let Some(mut lock) = self.inner.try_lock() {
+                lock.advance(duration);
+                return self.inner_park.park_timeout(Duration::from_millis(0));
+            }
+        }
     }
 }
 
