@@ -3,13 +3,13 @@ name: Rust
 on: [push]
 
 jobs:
-  build:
+  build_and_test:
+    name: Simulation
     runs-on: ubuntu-latest
-
     steps:
-      - uses: actions/checkout@v1
+      - uses: actions/checkout@master
       - uses: actions-rs/cargo@v1
-        name: Run Tests
+        name: Test
         with:
-          toolchain: nightly
           command: test
+          toolchain: nightly
