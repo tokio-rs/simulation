@@ -92,7 +92,7 @@ impl DeterministicRuntimeSchedulerRng {
         from: Duration,
         to: Duration,
     ) -> Option<tokio::timer::Delay> {
-        loop {            
+        loop {
             if let Some(mut lock) = self.state.try_lock() {
                 if lock.should_perform_random_action(probability) {
                     if let Some(ref mut rng) = lock.rng {
@@ -109,14 +109,14 @@ impl DeterministicRuntimeSchedulerRng {
     }
 
     pub(crate) fn executor_handle(&self) -> tokio_executor::current_thread::Handle {
-        loop {            
+        loop {
             if let Some(lock) = self.state.try_lock() {
                 return lock.executor_handle.clone();
             }
         }
     }
     pub(crate) fn clock(&self) -> time::MockClock {
-        loop {            
+        loop {
             if let Some(lock) = self.state.try_lock() {
                 return lock.clock.clone();
             }

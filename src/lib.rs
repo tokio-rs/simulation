@@ -1,3 +1,4 @@
+#![allow(dead_code, unused_imports, unused_variables)]
 //! This crate provides an abstraction over the [tokio] [CurrentThread] runtime
 //! which allows for simulating applications.
 //!
@@ -45,6 +46,7 @@ pub use runtime::{
     SingleThreadedRuntimeHandle,
 };
 use tokio::io::{AsyncRead, AsyncWrite};
+mod next;
 mod runtime;
 
 #[async_trait]

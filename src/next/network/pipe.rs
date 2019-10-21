@@ -1,33 +1,32 @@
+use crate::next::FaultInjectorHandle;
 use bytes::{Buf, BytesMut, IntoBuf};
 use futures::{FutureExt, Poll};
 use std::{io, pin::Pin, task::Context};
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio_sync::AtomicWaker;
 
+/// In-memory AsyncRead/AsyncWrite.
 #[derive(Debug)]
 pub(crate) struct Pipe {
-    faults: super::NetworkFaults,
-    read_delay: Option<tokio::timer::Delay>,
-    write_delay: Option<tokio::timer::Delay>,
     buf: Option<BytesMut>,
     waker: AtomicWaker,
-    shutdown: bool,
+    dropped: bool,
+}
+
+impl Drop for Pipe {
+    fn drop(&mut self) {
+        self.dropped = true;
+        self.waker.wake()
+    }
 }
 
 impl Pipe {
-    pub(crate) fn new(faults: super::NetworkFaults) -> Self {
+    pub(crate) fn new() -> Self {
         Self {
-            faults,
-            read_delay: None,
-            write_delay: None,
             buf: None,
             waker: AtomicWaker::new(),
-            shutdown: false,
+            dropped: false,
         }
-    }
-    pub(crate) fn shutdown(&mut self) {
-        self.shutdown = true;
-        self.waker.wake();
     }
 }
 
@@ -37,26 +36,8 @@ impl AsyncRead for Pipe {
         cx: &mut Context<'_>,
         dst: &mut [u8],
     ) -> Poll<io::Result<usize>> {
-        if self.shutdown {
+        if self.dropped {
             return Poll::Ready(Ok(0));
-        }
-
-        // check if there is an existing read delay
-        if let Some(mut delay) = self.read_delay.take() {
-            // try to poll the delay
-            if let Poll::Pending = delay.poll_unpin(cx) {
-                self.read_delay.replace(delay);
-                return Poll::Pending;
-            }
-        } else {
-            // no poll delay found, lets roll for another one with a 25% probability of being delayed on the next poll
-            // for anywhere from 100 to 5000 milliseconds.
-            if let Some(mut new_delay) = self.faults.socket_read_delay() {
-                if let Poll::Pending = new_delay.poll_unpin(cx) {
-                    self.read_delay.replace(new_delay);
-                    return Poll::Pending;
-                }
-            }
         }
 
         if let Some(mut bytes) = self.buf.take() {
@@ -85,26 +66,8 @@ impl AsyncWrite for Pipe {
         cx: &mut Context<'_>,
         buf: &[u8],
     ) -> Poll<Result<usize, io::Error>> {
-        if self.shutdown {
+        if self.dropped {
             return Poll::Ready(Err(io::ErrorKind::BrokenPipe.into()));
-        }
-
-        // check if there is an existing write delay
-        if let Some(mut delay) = self.write_delay.take() {
-            // try to poll the delay
-            if let Poll::Pending = delay.poll_unpin(cx) {
-                self.write_delay.replace(delay);
-                return Poll::Pending;
-            }
-        } else {
-            // no poll delay found, lets roll for another one with a 25% probability of being delayed on the next poll
-            // for anywhere from 100 to 5000 milliseconds.
-            if let Some(mut new_delay) = self.faults.socket_write_delay() {
-                if let Poll::Pending = new_delay.poll_unpin(cx) {
-                    self.write_delay.replace(new_delay);
-                    return Poll::Pending;
-                }
-            }
         }
 
         if let Some(_) = self.buf {
@@ -116,14 +79,15 @@ impl AsyncWrite for Pipe {
             return Poll::Ready(Ok(buf.len()));
         }
     }
+
     fn poll_flush(self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<Result<(), io::Error>> {
-        if self.shutdown {
+        if self.dropped {
             return Poll::Ready(Err(io::ErrorKind::BrokenPipe.into()));
         }
         Poll::Ready(Ok(()))
     }
     fn poll_shutdown(mut self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<Result<(), io::Error>> {
-        self.shutdown = true;
+        self.dropped = true;
         self.waker.wake();
         Poll::Ready(Ok(()))
     }
@@ -133,17 +97,16 @@ impl AsyncWrite for Pipe {
 mod tests {
     use super::*;
     use crate::Environment;
+    use tokio::codec::{Framed, LinesCodec};
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
     #[test]
-    /// Tests that a pipe can transport values, also demonstrates the probabilistic delay/fault injection capabilites
-    /// of the pipe.
+    /// Tests that a pipe can transport values.
     fn bounded_pipe() {
         let mut runtime = crate::DeterministicRuntime::new_with_seed(3).unwrap();
         let handle = runtime.handle();
         runtime.block_on(async {
-            let time_before = handle.now();
-            let rw = Pipe::new(handle.network_faults());
+            let rw = Pipe::new();
             let (mut r, mut w) = tokio::io::split(rw);
             handle.spawn(async move {
                 w.write_all("foo".as_bytes()).await.unwrap();
@@ -153,11 +116,6 @@ mod tests {
             let mut target = vec![0; 9];
             r.read_exact(&mut target).await.unwrap();
             assert_eq!(std::str::from_utf8(&target[..]).unwrap(), "foobarbaz");
-            let time_after = handle.now();
-            assert!(
-                time_after > time_before,
-                "expected with a seed of 3, the timer would advance"
-            );
         })
     }
 
@@ -168,7 +126,7 @@ mod tests {
     fn shutdown_pipe() {
         let mut runtime = crate::DeterministicRuntime::new().unwrap();
         let handle = runtime.handle();
-        let rw = Pipe::new(handle.network_faults());
+        let rw = Pipe::new();
         runtime.block_on(async {
             let (mut r, mut w) = tokio::io::split(rw);
             w.write("foo".as_bytes()).await.unwrap();

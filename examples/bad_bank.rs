@@ -8,26 +8,17 @@
 //! 2. An ATM process for Alice, which attempts to withdraw 1 dollar every 500ms.
 //! 3. An ATM process for Bob, which attempts to withdraw 2 dollars every 200ms.
 
-use futures::{channel::oneshot, SinkExt, StreamExt};
+use bytes::BytesMut;
+use futures::{channel::oneshot, FutureExt, SinkExt, StreamExt};
 use simulation::{DeterministicRuntime, Environment, TcpListener};
 use std::{
+    io,
     net::Ipv4Addr,
     net::{IpAddr, SocketAddr},
     sync::Arc,
     time::Duration,
 };
 use tokio::codec::{Framed, LinesCodec};
-
-#[derive(Debug)]
-enum Error {
-    IO(std::io::Error),
-}
-
-impl From<std::io::Error> for Error {
-    fn from(e: std::io::Error) -> Self {
-        Self::IO(e)
-    }
-}
 
 enum BankOperations {
     Deposit { amount: usize },
@@ -36,37 +27,66 @@ enum BankOperations {
     BalanceResponse { balance: usize },
 }
 
-impl BankOperations {
-    fn parse(s: String) -> BankOperations {
-        let parts: Vec<&str> = s.split(" ").collect();
-        if parts[0] == "deposit" {
-            return BankOperations::Deposit {
-                amount: parts[1].parse().unwrap(),
-            };
-        }
-        if parts[0] == "withdraw" {
-            return BankOperations::Withdraw {
-                amount: parts[1].parse().unwrap(),
-            };
-        }
-        if parts[0] == "balancereq" {
-            return BankOperations::BalanceRequest;
-        }
-        if parts[0] == "balanceresp" {
-            return BankOperations::BalanceResponse {
-                balance: parts[1].parse().unwrap(),
-            };
-        }
-        panic!("unexpected message")
+struct Codec {
+    inner: LinesCodec,
+}
+
+impl Codec {
+    fn wrap(c: LinesCodec) -> Self {
+        Self { inner: c }
     }
-    fn to_message(&self) -> String {
+}
+
+impl tokio::codec::Decoder for Codec {
+    type Item = BankOperations;
+    type Error = io::Error;
+    fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
+        if let Some(line) = self
+            .inner
+            .decode(src)
+            .map_err(|_| io::ErrorKind::InvalidData)?
+        {
+            let parts: Vec<&str> = line.split(" ").collect();
+            if parts[0] == "deposit" {
+                return Ok(Some(BankOperations::Deposit {
+                    amount: parts[1].parse().unwrap(),
+                }));
+            }
+            if parts[0] == "withdraw" {
+                return Ok(Some(BankOperations::Withdraw {
+                    amount: parts[1].parse().unwrap(),
+                }));
+            }
+            if parts[0] == "balancereq" {
+                return Ok(Some(BankOperations::BalanceRequest));
+            }
+            if parts[0] == "balanceresp" {
+                return Ok(Some(BankOperations::BalanceResponse {
+                    balance: parts[1].parse().unwrap(),
+                }));
+            }
+            return Err(io::ErrorKind::InvalidData.into());
+        } else {
+            return Ok(None);
+        }
+    }
+}
+
+impl tokio::codec::Encoder for Codec {
+    type Item = BankOperations;
+    type Error = io::Error;
+    fn encode(&mut self, item: Self::Item, dst: &mut BytesMut) -> Result<(), Self::Error> {
         use BankOperations::*;
-        match self {
+        let encoded = match item {
             Deposit { amount } => format!("deposit {}", amount),
             Withdraw { amount } => format!("withdraw {}", amount),
             BalanceRequest => format!("balancereq"),
             BalanceResponse { balance } => format!("balanceresp {}", balance),
-        }
+        };
+        return self
+            .inner
+            .encode(encoded, dst)
+            .map_err(|_| io::ErrorKind::InvalidData.into());
     }
 }
 
@@ -77,20 +97,19 @@ async fn banking_server<E>(
 ) where
     E: Environment,
 {
-    let user_balance = std::sync::Arc::new(std::sync::Mutex::new(100usize));
+    let user_balance = std::sync::Arc::new(std::sync::Mutex::new(1000usize));
 
     let mut listener = handle.bind(bind_addr).await.unwrap();
     accepting.send(true).unwrap();
 
     while let Ok((new_connection, _)) = listener.accept().await {
-        let framed_read = Framed::new(new_connection, LinesCodec::new());
+        let framed_read = Framed::new(new_connection, Codec::wrap(LinesCodec::new()));
         let (mut sink, mut stream) = framed_read.split();
 
         // spawn a new worker to handle the connection
         let balance_handle = Arc::clone(&user_balance);
         handle.spawn(async move {
-            while let Some(Ok(req)) = stream.next().await {
-                let message = BankOperations::parse(req);
+            while let Some(Ok(message)) = stream.next().await {
                 match message {
                     BankOperations::Deposit { amount } => {
                         let mut lock = balance_handle.lock().unwrap();
@@ -98,7 +117,10 @@ async fn banking_server<E>(
                     }
                     BankOperations::Withdraw { amount } => {
                         let mut lock = balance_handle.lock().unwrap();
-                        assert!(*lock > 0, "overdraft detected!");
+                        if *lock > 0 {
+                            assert!(false, "overdraft detected!");
+                        }
+
                         *lock -= amount;
                     }
                     BankOperations::BalanceRequest => {
@@ -108,8 +130,7 @@ async fn banking_server<E>(
                         };
                         let message = BankOperations::BalanceResponse {
                             balance: current_balance,
-                        }
-                        .to_message();
+                        };
                         sink.send(message).await.unwrap();
                     }
                     _ => unreachable!(),
@@ -124,21 +145,22 @@ async fn atm<E>(handle: E, period: Duration, withdraw: usize, socket: E::TcpStre
 where
     E: simulation::Environment,
 {
-    let mut transport = Framed::new(socket, LinesCodec::new());
+    let mut transport = Framed::new(socket, Codec::wrap(LinesCodec::new()));
     loop {
+        println!("atming");
         // first make a balance request
         transport
-            .send(BankOperations::BalanceRequest.to_message())
+            .send(BankOperations::BalanceRequest)
             .await
             .unwrap();
         // retrieve balance response
         if let BankOperations::BalanceResponse { balance } =
-            BankOperations::parse(transport.next().await.unwrap().unwrap())
+            transport.next().await.unwrap().unwrap()
         {
             // if we have money in the account, withdraw it!
             if balance > withdraw {
                 transport
-                    .send(BankOperations::Withdraw { amount: withdraw }.to_message())
+                    .send(BankOperations::Withdraw { amount: withdraw })
                     .await
                     .unwrap();
             } else {
@@ -163,9 +185,10 @@ fn simulate(seed: u64) -> std::time::Duration {
         let server_handle = handle.clone();
         // setup a channel to notify us when a bind happens
         let (bind_tx, bind_rx) = oneshot::channel();
-        handle.spawn(async move {
+        let mut server_fut = simulation::spawn_with_result(&handle, async move {
             banking_server(server_handle, bank_addr.clone(), bind_tx).await;
-        });
+        })
+        .fuse();
         bind_rx.await.unwrap();
 
         let socket = handle.connect(bank_addr).await.unwrap();
@@ -178,8 +201,16 @@ fn simulate(seed: u64) -> std::time::Duration {
             &handle,
             atm(handle.clone(), Duration::from_millis(500), 1, socket),
         );
-        r1.await;
-        r2.await;
+
+        let mut fut = futures::future::join_all(vec![r1, r2]).fuse();
+        futures::select!(
+            _ = fut => {
+                println!("clients finished")
+            }
+            _ = server_fut => {
+                println!("bank overdrafted on seed {}", seed)
+            }
+        );
     });
     let end_time = handle.now();
     end_time - start_time

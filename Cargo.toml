@@ -10,7 +10,7 @@ Framework for deterministic simulation testing.
 """
 [dependencies]
 tokio = {version = "0.2.0-alpha.5", features = ["sync"]}
-futures-preview = "0.3.0-alpha.19"
+futures-preview = {version = "0.3.0-alpha.19", features = ["async-await"]}
 tokio-timer = "0.3.0-alpha.6"
 tokio-executor = {version = "0.2.0-alpha.5"}
 tokio-net = {version = "0.2.0-alpha.5"}
@@ -20,3 +20,5 @@ try-lock = "0.2.2"
 tokio-test = "0.2.0-alpha.6"
 rand = {version = "0.7.2", features =["small_rng"]}
 async-trait = "0.1.14"
+pin-project = "0.4.4"
+tokio-io = "0.2.0-alpha.6"

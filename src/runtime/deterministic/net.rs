@@ -176,6 +176,7 @@ impl MemoryNetwork {
     pub(crate) fn network_faults(&self) -> NetworkFaults {
         self.network_faults.clone()
     }
+
     /// Opens an in-memory connection based on the port portion of the supplied SocketAddrs. Attempts each
     /// supplied SocketAddr in order, returning the first successful connection. If no successful connections
     /// could be made, the last error is returned instead.
