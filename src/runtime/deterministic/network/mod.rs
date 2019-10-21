@@ -145,21 +145,21 @@ impl Drop for Listener {
 
 #[derive(Debug, Clone)]
 pub struct NetworkHandle {
-    fault_injector: crate::next::FaultInjectorHandle,
+    fault_injector: super::FaultInjectorHandle,
     inner: sync::Arc<sync::Mutex<Inner>>,
 }
 
 impl NetworkHandle {
     fn new(
         inner: sync::Arc<sync::Mutex<Inner>>,
-        fault_injector: crate::next::FaultInjectorHandle,
+        fault_injector: super::FaultInjectorHandle,
     ) -> Self {
         Self {
             fault_injector,
             inner,
         }
     }
-    pub async fn connect(&self, addr: net::SocketAddr) -> Result<impl crate::TcpStream, io::Error> {
+    pub async fn connect(&self, addr: net::SocketAddr) -> Result<stream::ClientConnection, io::Error> {
         let port: num::NonZeroU16 = num::NonZeroU16::new(addr.port()).ok_or(
             <io::ErrorKind as Into<io::Error>>::into(io::ErrorKind::InvalidInput),
         )?;
@@ -291,9 +291,9 @@ mod tests {
     }
     #[test]
     fn bind_and_connect() {
-        let mut runtime = crate::DeterministicRuntime::new().unwrap();
+        let mut runtime = crate::DeterministicRuntime::new();
         let handle = runtime.handle();
-        let noop_fault_injector = crate::next::fault::FaultInjector::new_noop();
+        let noop_fault_injector = super::super::FaultInjector::new_noop();
         let network_inner = Inner::new();
         let network_inner = sync::Arc::new(sync::Mutex::new(network_inner));
         let network_handle = NetworkHandle::new(network_inner, noop_fault_injector.handle());

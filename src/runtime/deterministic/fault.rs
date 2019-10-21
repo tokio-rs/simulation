@@ -41,7 +41,7 @@ impl Config {
 enum State {
     Real {
         timer_handle: tokio_timer::timer::Handle,
-        now: crate::next::time::Now,
+        now: super::time::Now,
         rng: rngs::SmallRng,
     },
     Noop,
@@ -111,7 +111,7 @@ impl FaultInjector {
     pub(crate) fn new(
         seed: u64,
         timer_handle: tokio_timer::timer::Handle,
-        now: crate::next::time::Now,
+        now: super::time::Now,
     ) -> FaultInjector {
         let state = State::Real {
             timer_handle,

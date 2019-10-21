@@ -117,7 +117,7 @@ async fn banking_server<E>(
                     }
                     BankOperations::Withdraw { amount } => {
                         let mut lock = balance_handle.lock().unwrap();
-                        if *lock > 0 {
+                        if *lock - amount <= 0 {
                             assert!(false, "overdraft detected!");
                         }
 
@@ -177,7 +177,7 @@ where
 fn simulate(seed: u64) -> std::time::Duration {
     // A SingleThreaded runtime can be swapped in at will.
     // let mut runtime = SingleThreadedRuntime::new().unwrap();
-    let mut runtime = DeterministicRuntime::new_with_seed(seed).unwrap();
+    let mut runtime = DeterministicRuntime::new_with_seed(seed);
     let handle = runtime.handle();
     let bank_addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 9092);
     let start_time = handle.now();
@@ -222,7 +222,7 @@ fn simulate(seed: u64) -> std::time::Duration {
 /// Particularly, seed #1 causes a message ordering which results
 /// in an overdraft, while seed #0 does not.
 fn main() {
-    for seed in 0..10 {
+    for seed in 1..10 {
         println!("--- seed --- {}", seed);
         let true_start_time = std::time::Instant::now();
         let simulation_duration = simulate(seed);

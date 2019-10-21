@@ -30,7 +30,7 @@ struct MemoryStreamFaultInjector {
     delay: Option<tokio_timer::Delay>,
 
     /// Wrapped fault injector, used to query for delay faults.
-    fault_injector: crate::next::FaultInjectorHandle,
+    fault_injector: crate::FaultInjectorHandle,
 
     /// Disconnected fault injectors will return an appropriate disconnected error on calls to `poll_disconnected`,
     /// determined by the `Mode`.
@@ -62,7 +62,7 @@ impl MemoryConnectionFaultInjector {
     ///
     /// [`FaultInjectorHandle`]:crate::next::FaultInjectorHandle
     /// [`MemoryConnectionFaultInjector`]:MemoryConnectionFaultInjector
-    fn new(fault_injector: crate::next::FaultInjectorHandle) -> Self {
+    fn new(fault_injector: super::super::FaultInjectorHandle) -> Self {
         let client = MemoryStreamFaultInjectorHandle::new_with_fault_injector(
             fault_injector.clone(),
             Mode::Client,
@@ -114,7 +114,7 @@ impl MemoryStreamFaultInjectorHandle {
     /// Returns a new `MemoryStreamFaultInjectorHandle` which can be used to track delay faults and inject
     /// disconnects.
     fn new_with_fault_injector(
-        fault_injector: crate::next::FaultInjectorHandle,
+        fault_injector: super::super::FaultInjectorHandle,
         mode: Mode,
     ) -> Self {
         let state = MemoryStreamFaultInjector {
@@ -189,7 +189,7 @@ impl crate::TcpStream for MemoryStream {
 
 /// Returns a new in-memory connection between a server and a client.
 pub(crate) fn new_pair(
-    fault_injector: crate::next::FaultInjectorHandle,
+    fault_injector: super::super::FaultInjectorHandle,
     port: std::num::NonZeroU16,
 ) -> (
     MemoryConnectionFaultInjector,
@@ -312,11 +312,11 @@ mod tests {
     #[test]
     /// Tests that messages can be sent and received using a pair of MemoryStreams.
     fn test_ping_pong() {
-        let mut runtime = crate::DeterministicRuntime::new().unwrap();
+        let mut runtime = crate::DeterministicRuntime::new();
         let handle = runtime.handle();
         runtime.block_on(async {
             let port = std::num::NonZeroU16::new(9092).unwrap();
-            let noop_fault_injector = crate::next::fault::FaultInjector::new_noop();
+            let noop_fault_injector = super::super::super::FaultInjector::new_noop();
             let (_, server_conn, client_conn) = new_pair(noop_fault_injector.handle(), port);
             let server_status = crate::spawn_with_result(&handle, pong_server(server_conn));
             let mut transport =
@@ -333,11 +333,11 @@ mod tests {
     /// Tests that disconnecting the server and client will cause both the server and client to fail further
     /// reads/writes with an error.
     fn test_disconnect() {
-        let mut runtime = crate::DeterministicRuntime::new().unwrap();
+        let mut runtime = crate::DeterministicRuntime::new();
         let handle = runtime.handle();
         runtime.block_on(async {
             let port = std::num::NonZeroU16::new(9092).unwrap();
-            let noop_fault_injector = crate::next::fault::FaultInjector::new_noop();
+            let noop_fault_injector = super::super::super::FaultInjector::new_noop();
             let (conn_handle, server_conn, client_conn) =
                 new_pair(noop_fault_injector.handle(), port);
             let server_status = crate::spawn_with_result(&handle, pong_server(server_conn));
@@ -365,11 +365,11 @@ mod tests {
     #[test]
     /// Tests that disconnecting a client will cause the server to wake and return an error.
     fn test_client_disconnect_wake() {
-        let mut runtime = crate::DeterministicRuntime::new().unwrap();
+        let mut runtime = crate::DeterministicRuntime::new();
         let handle = runtime.handle();
         runtime.block_on(async {
             let port = std::num::NonZeroU16::new(9092).unwrap();
-            let noop_fault_injector = crate::next::fault::FaultInjector::new_noop();
+            let noop_fault_injector = super::super::super::FaultInjector::new_noop();
             let (conn_handle, server_conn, client_conn) = new_pair(noop_fault_injector.handle(), port);
             let server_status = crate::spawn_with_result(&handle, pong_server(server_conn));
             futures::pin_mut!(server_status);
@@ -383,11 +383,11 @@ mod tests {
     #[test]
     /// Tests that disconnecting a server will cause client writes to return an error.
     fn test_server_disconnect_wake() {
-        let mut runtime = crate::DeterministicRuntime::new().unwrap();
+        let mut runtime = crate::DeterministicRuntime::new();
         let handle = runtime.handle();
         runtime.block_on(async {
             let port = std::num::NonZeroU16::new(9092).unwrap();
-            let noop_fault_injector = crate::next::fault::FaultInjector::new_noop();
+            let noop_fault_injector = crate::FaultInjector::new_noop();
             let (conn_handle, server_conn, mut client_conn) = new_pair(noop_fault_injector.handle(), port);
             let server_status = crate::spawn_with_result(&handle, pong_server(server_conn));
             futures::pin_mut!(server_status);

@@ -1,4 +1,4 @@
-use crate::next::FaultInjectorHandle;
+use super::super::FaultInjectorHandle;
 use bytes::{Buf, BytesMut, IntoBuf};
 use futures::{FutureExt, Poll};
 use std::{io, pin::Pin, task::Context};
@@ -103,7 +103,7 @@ mod tests {
     #[test]
     /// Tests that a pipe can transport values.
     fn bounded_pipe() {
-        let mut runtime = crate::DeterministicRuntime::new_with_seed(3).unwrap();
+        let mut runtime = crate::DeterministicRuntime::new_with_seed(3);
         let handle = runtime.handle();
         runtime.block_on(async {
             let rw = Pipe::new();
@@ -124,7 +124,7 @@ mod tests {
     /// side should always return Ok(0).
     /// TODO: Check if this logic matches TcpStream
     fn shutdown_pipe() {
-        let mut runtime = crate::DeterministicRuntime::new().unwrap();
+        let mut runtime = crate::DeterministicRuntime::new();
         let handle = runtime.handle();
         let rw = Pipe::new();
         runtime.block_on(async {

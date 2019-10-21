@@ -5,19 +5,18 @@
 //!
 
 use async_trait::async_trait;
-pub(crate) use fault::FaultInjectorHandle;
 use futures::Future;
 use std::{
     io, net,
     time::{Duration, Instant},
 };
 use crate::runtime::Error;
-pub(crate) use time::Time;
 use tokio_executor::park::Park;
-
-mod fault;
+pub(crate) mod fault;
+pub(crate) use fault::{FaultInjectorHandle, FaultInjector};
 mod network;
 mod time;
+pub(crate) use time::Time;
 
 #[derive(Debug, Clone)]
 pub struct DeterministicRuntimeHandle {
@@ -29,6 +28,12 @@ pub struct DeterministicRuntimeHandle {
     executor: tokio_executor::current_thread::Handle,
 }
 
+impl DeterministicRuntimeHandle {
+    pub fn now(&self) -> Instant {
+        self.time.now()
+    }
+}
+
 #[async_trait]
 impl crate::Environment for DeterministicRuntimeHandle {
     type TcpStream = network::ClientConnection;
@@ -37,28 +42,28 @@ impl crate::Environment for DeterministicRuntimeHandle {
     where
         F: Future<Output = ()> + Send + 'static,
     {
-        unimplemented!()
+        self.executor.spawn(future).expect("failed to spawn");
     }
     fn now(&self) -> Instant {
-        unimplemented!()
+        self.time.now()
     }
     fn delay(&self, deadline: Instant) -> tokio_timer::Delay {
-        unimplemented!()
+        self.timer.delay(deadline)
     }
     fn timeout<T>(&self, value: T, timeout: Duration) -> tokio_timer::Timeout<T> {
-        unimplemented!()
+        self.timer.timeout(value, timeout)
     }
     async fn bind<'a, A>(&'a self, addr: A) -> io::Result<Self::TcpListener>
     where
         A: Into<net::SocketAddr> + Send + Sync,
     {
-        unimplemented!()
+        self.network.bind(addr.into())
     }
     async fn connect<'a, A>(&'a self, addr: A) -> io::Result<Self::TcpStream>
     where
         A: Into<net::SocketAddr> + Send + Sync,
     {
-        unimplemented!()
+        self.network.connect(addr.into()).await
     }
 }
 
@@ -75,7 +80,10 @@ pub struct DeterministicRuntime {
 }
 
 impl DeterministicRuntime {
-    pub fn new(seed: u64) -> Self {
+    pub fn new() -> Self {
+        DeterministicRuntime::new_with_seed(0)
+    }
+    pub fn new_with_seed(seed: u64) -> Self {
         let reactor = tokio_net::driver::Reactor::new().unwrap();
         let reactor_handle = reactor.handle();
         let time = Time::new();
@@ -144,4 +152,69 @@ impl DeterministicRuntime {
         })
     }
 
+}
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::Environment;
+
+    #[test]
+    /// Test that delays accurately advance the clock.    
+    fn delays() {
+        let mut runtime = DeterministicRuntime::new();
+        let handle = runtime.handle();
+        runtime.block_on(async {
+            let start_time = handle.now();
+            handle.delay_from(Duration::from_secs(30)).await;
+            let end_time = handle.now();
+            assert!(end_time > start_time);
+            assert_eq!(end_time - Duration::from_secs(30), start_time)
+        });
+    }
+
+    #[test]
+    /// Test that waiting on delays across spawned tasks results in the clock
+    /// being advanced in accordance with the length of the delay.
+    fn ordering() {
+        let mut runtime = DeterministicRuntime::new();
+        let handle = runtime.handle();
+        runtime.block_on(async {
+            let delay1 = handle.delay_from(Duration::from_secs(10));
+            let delay2 = handle.delay_from(Duration::from_secs(30));
+
+            let handle1 = handle.clone();
+            let completed_at1 = crate::spawn_with_result(&handle1.clone(), async move {
+                delay1.await;
+                handle1.now()
+            })
+            .await;
+
+            let handle2 = handle.clone();
+            let completed_at2 = crate::spawn_with_result(&handle2.clone(), async move {
+                delay2.await;
+                handle2.now()
+            })
+            .await;
+            assert!(completed_at1 < completed_at2)
+        });
+    }
+
+    #[test]
+    /// Test that the Tokio global timer and clock are both set correctly.
+    fn globals() {
+        let mut runtime = DeterministicRuntime::new();
+        let handle = runtime.handle();
+        runtime.block_on(async {
+            let start_time = tokio_timer::clock::now();
+            assert_eq!(handle.now(), tokio_timer::clock::now());
+            let delay = tokio::timer::delay_for(Duration::from_secs(10));
+            delay.await;
+            assert_eq!(
+                start_time + Duration::from_secs(10),
+                tokio_timer::clock::now()
+            );
+        });
+    }
 }

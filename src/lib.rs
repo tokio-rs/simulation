@@ -40,13 +40,12 @@ use async_trait::async_trait;
 use futures::{channel::oneshot, Future, FutureExt};
 use std::{io, net, time};
 
-pub(crate) use runtime::DeterministicRuntimeSchedulerRng;
 pub use runtime::{
     DeterministicRuntime, DeterministicRuntimeHandle, SingleThreadedRuntime,
-    SingleThreadedRuntimeHandle,
+    SingleThreadedRuntimeHandle, 
 };
+pub(crate) use runtime::deterministic::fault::{FaultInjector, FaultInjectorHandle};
 use tokio::io::{AsyncRead, AsyncWrite};
-mod next;
 mod runtime;
 
 #[async_trait]
