@@ -37,14 +37,16 @@
 //! [Timeout]:[tokio_timer::Timeout]
 
 use async_trait::async_trait;
-use futures::{channel::oneshot, Future, FutureExt};
-use std::{io, net, time};
+use futures::{channel::oneshot, Future, FutureExt, Poll, Stream};
+use std::{io, net, pin::Pin, task::Context, time};
 
+pub(crate) use runtime::deterministic::fault::{FaultInjector, FaultInjectorHandle};
 pub use runtime::{
     DeterministicRuntime, DeterministicRuntimeHandle, SingleThreadedRuntime,
-    SingleThreadedRuntimeHandle, 
+    SingleThreadedRuntimeHandle,
 };
-pub(crate) use runtime::deterministic::fault::{FaultInjector, FaultInjectorHandle};
+
+pub use runtime::deterministic;
 use tokio::io::{AsyncRead, AsyncWrite};
 mod runtime;
 

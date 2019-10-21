@@ -169,10 +169,10 @@ impl MemoryStreamFaultInjectorHandle {
 }
 
 /// An in-memory connection from a client to a server.
-pub(crate) type ClientConnection = MemoryStream;
+pub type ClientConnection = MemoryStream;
 
 /// An in-memory connection from a server to a client.
-pub(crate) type ServerConnection = MemoryStream;
+pub type ServerConnection = MemoryStream;
 
 impl crate::TcpStream for MemoryStream {
     fn local_addr(&self) -> io::Result<net::SocketAddr> {

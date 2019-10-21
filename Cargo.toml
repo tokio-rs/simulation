@@ -21,4 +21,12 @@ tokio-test = "0.2.0-alpha.6"
 rand = {version = "0.7.2", features =["small_rng"]}
 async-trait = "0.1.14"
 pin-project = "0.4.4"
-tokio-io = "0.2.0-alpha.6"
+tokio-io = {version = "0.2.0-alpha.5"}
+
+[dev-dependencies]
+tonic = "0.1.0-alpha.3"
+prost = "0.5"
+tower = "=0.3.0-alpha.2"
+hyper = { version = "=0.13.0-alpha.4", features = ["unstable-stream"]}
+tower-service = "0.2.0"
+http = "0.1.19"

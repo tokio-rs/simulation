@@ -1,4 +1,4 @@
-pub(crate) mod deterministic;
+pub mod deterministic;
 mod singlethread;
 
 pub use deterministic::{DeterministicRuntime, DeterministicRuntimeHandle};

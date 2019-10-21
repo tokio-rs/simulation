@@ -4,19 +4,20 @@
 //! testing for all.
 //!
 
+use crate::runtime::Error;
 use async_trait::async_trait;
 use futures::Future;
 use std::{
     io, net,
     time::{Duration, Instant},
 };
-use crate::runtime::Error;
 use tokio_executor::park::Park;
 pub(crate) mod fault;
-pub(crate) use fault::{FaultInjectorHandle, FaultInjector};
+pub(crate) use fault::{FaultInjector, FaultInjectorHandle};
 mod network;
 mod time;
 pub(crate) use time::Time;
+pub use network::{Listener, ClientConnection, ServerConnection, MemoryStream};
 
 #[derive(Debug, Clone)]
 pub struct DeterministicRuntimeHandle {
@@ -37,7 +38,7 @@ impl DeterministicRuntimeHandle {
 #[async_trait]
 impl crate::Environment for DeterministicRuntimeHandle {
     type TcpStream = network::ClientConnection;
-    type TcpListener = network::Listener;
+    type TcpListener = network::Listener;    
     fn spawn<F>(&self, future: F)
     where
         F: Future<Output = ()> + Send + 'static,
@@ -65,6 +66,7 @@ impl crate::Environment for DeterministicRuntimeHandle {
     {
         self.network.connect(addr.into()).await
     }
+    
 }
 
 type Executor = tokio_executor::current_thread::CurrentThread<
@@ -76,7 +78,7 @@ pub struct DeterministicRuntime {
     handle: DeterministicRuntimeHandle,
     reactor_handle: tokio_net::driver::Handle,
     timer_handle: tokio_timer::timer::Handle,
-    clock: tokio_timer::clock::Clock, 
+    clock: tokio_timer::clock::Clock,
 }
 
 impl DeterministicRuntime {
@@ -105,7 +107,13 @@ impl DeterministicRuntime {
             network: network_handle,
             executor: executor.handle(),
         };
-        DeterministicRuntime { executor, handle, reactor_handle, timer_handle, clock }
+        DeterministicRuntime {
+            executor,
+            handle,
+            reactor_handle,
+            timer_handle,
+            clock,
+        }
     }
 
     pub fn handle(&self) -> DeterministicRuntimeHandle {
@@ -143,7 +151,7 @@ impl DeterministicRuntime {
             ref timer_handle,
             ..
         } = *self;
-        
+
         let _reactor = tokio_net::driver::set_default(&reactor_handle);
         let _guard = tokio_timer::timer::set_default(timer_handle);
         tokio_timer::clock::with_default(&clock, || {
@@ -151,9 +159,7 @@ impl DeterministicRuntime {
             tokio_executor::with_default(&mut default_executor, || f(executor))
         })
     }
-
 }
-
 
 #[cfg(test)]
 mod tests {

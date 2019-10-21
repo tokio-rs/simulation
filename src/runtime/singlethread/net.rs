@@ -1,5 +1,6 @@
 use async_trait::async_trait;
-use std::{io, net};
+use futures::{FutureExt, Poll};
+use std::{io, net, pin::Pin, task::Context};
 
 impl crate::TcpStream for tokio::net::TcpStream {
     fn local_addr(&self) -> Result<net::SocketAddr, io::Error> {

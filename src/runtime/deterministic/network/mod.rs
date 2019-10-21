@@ -17,7 +17,7 @@ use tokio_timer::clock::Now;
 mod pipe;
 mod stream;
 use async_trait::async_trait;
-pub(crate) use stream::{ClientConnection, ServerConnection};
+pub use stream::{ClientConnection, ServerConnection, MemoryStream};
 
 #[derive(Debug)]
 struct Inner {
@@ -113,6 +113,21 @@ pub struct Listener {
     inner: sync::Arc<sync::Mutex<Inner>>,
 }
 
+impl Stream for Listener {
+    type Item = Result<stream::MemoryStream, io::Error>;
+    fn poll_next(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+    ) -> Poll<Option<Self::Item>> { 
+        let next = futures::ready!(self.stream.poll_next_unpin(cx));
+        if let Some((sock, addr)) = next {
+            return Poll::Ready(Some(Ok(sock)))
+        } else {
+            return Poll::Ready(None)
+        }
+    }    
+}
+
 #[async_trait]
 impl crate::TcpListener for Listener {
     type Stream = stream::MemoryStream;
@@ -159,7 +174,10 @@ impl NetworkHandle {
             inner,
         }
     }
-    pub async fn connect(&self, addr: net::SocketAddr) -> Result<stream::ClientConnection, io::Error> {
+    pub async fn connect(
+        &self,
+        addr: net::SocketAddr,
+    ) -> Result<stream::ClientConnection, io::Error> {
         let port: num::NonZeroU16 = num::NonZeroU16::new(addr.port()).ok_or(
             <io::ErrorKind as Into<io::Error>>::into(io::ErrorKind::InvalidInput),
         )?;
