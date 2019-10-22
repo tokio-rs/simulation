@@ -1,6 +1,6 @@
 use async_trait::async_trait;
-use tokio::net::{TcpListener, TcpStream};
 use std::{io, net};
+use tokio::net::{TcpListener, TcpStream};
 
 impl crate::TcpStream for TcpStream {
     fn local_addr(&self) -> Result<net::SocketAddr, io::Error> {

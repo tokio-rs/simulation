@@ -3,7 +3,7 @@
 //! side of a connection.
 use futures::{FutureExt, Poll};
 use std::{io, net, pin::Pin, sync, task::Context};
-use tokio::io::{AsyncRead, AsyncWrite, };
+use tokio::io::{AsyncRead, AsyncWrite};
 use tokio_sync::AtomicWaker;
 
 /// MemoryStream is a unidirectional in-memory byte stream supporting fault injection.
@@ -294,9 +294,9 @@ impl AsyncWrite for MemoryStream {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::Environment;
     use futures::{SinkExt, StreamExt};
     use tokio::io::AsyncWriteExt;
-    use crate::Environment;
 
     async fn pong_server(server: ServerConnection) -> Result<(), tokio::codec::LinesCodecError> {
         let mut transport = tokio::codec::Framed::new(server, tokio::codec::LinesCodec::new());
@@ -312,13 +312,13 @@ mod tests {
     #[test]
     /// Tests that messages can be sent and received using a pair of MemoryStreams.
     fn test_ping_pong() {
-        let mut runtime = crate::deterministic::DeterministicRuntime::new();
+        let mut runtime = crate::deterministic::DeterministicRuntime::new().unwrap();
         let handle = runtime.handle();
         runtime.block_on(async {
             let port = std::num::NonZeroU16::new(9092).unwrap();
             let noop_fault_injector = super::super::super::FaultInjector::new_noop();
             let (_, server_conn, client_conn) = new_pair(noop_fault_injector.handle(), port);
-            handle.spawn(pong_server(server_conn).map(|_|()));
+            handle.spawn(pong_server(server_conn).map(|_| ()));
             let mut transport =
                 tokio::codec::Framed::new(client_conn, tokio::codec::LinesCodec::new());
             for _ in 0..100usize {
@@ -333,7 +333,7 @@ mod tests {
     /// Tests that disconnecting the server and client will cause both the server and client to fail further
     /// reads/writes with an error.
     fn test_disconnect() {
-        let mut runtime = crate::deterministic::DeterministicRuntime::new();
+        let mut runtime = crate::deterministic::DeterministicRuntime::new().unwrap();
         let handle = runtime.handle();
         runtime.block_on(async {
             let port = std::num::NonZeroU16::new(9092).unwrap();
@@ -365,7 +365,7 @@ mod tests {
     #[test]
     /// Tests that disconnecting a client will cause the server to wake and return an error.
     fn test_client_disconnect_wake() {
-        let mut runtime = crate::deterministic::DeterministicRuntime::new();
+        let mut runtime = crate::deterministic::DeterministicRuntime::new().unwrap();
         let handle = runtime.handle();
         runtime.block_on(async {
             let port = std::num::NonZeroU16::new(9092).unwrap();
@@ -383,7 +383,7 @@ mod tests {
     #[test]
     /// Tests that disconnecting a server will cause client writes to return an error.
     fn test_server_disconnect_wake() {
-        let mut runtime = crate::deterministic::DeterministicRuntime::new();
+        let mut runtime = crate::deterministic::DeterministicRuntime::new().unwrap();
         let handle = runtime.handle();
         runtime.block_on(async {
             let port = std::num::NonZeroU16::new(9092).unwrap();

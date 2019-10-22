@@ -9,26 +9,55 @@
 //! [DeterministicRuntime] will automatically advance a mocked clock if there is
 //! no more work to do, up until the next timeout. This results in applications which
 //! can be decoupled from time, facilitating fast integration/simulation tests.
+//! 
+//! Simulation additionally provides facilities for networking and fault injection.
 //!
 //! ```rust
-//! use std::time;
-//! use simulation::{DeterministicRuntime, Environment};
+//! use crate::{Environment, TcpListener};
+//!    use futures::{SinkExt, StreamExt};
+//!    use std::{io, net, time};
+//!    use tokio::codec::{Framed, LinesCodec};
 //!
-//! async fn delayed<E>(handle: E) where E: Environment {
-//!    let start_time = handle.now();
-//!    handle.delay_from(time::Duration::from_secs(30)).await;
-//!    println!("that was fast!");
-//!    assert_eq!(handle.now(), start_time + time::Duration::from_secs(30));
-//! }
+//!    /// Start a client request handler which will write greetings to clients.
+//!    async fn handle<E>(env: E, socket: <E::TcpListener as TcpListener>::Stream, addr: net::SocketAddr)
+//!    where
+//!        E: Environment,
+//!    {
+//!        // delay the response, in deterministic mode this will immediately progress time.
+//!        env.delay_from(time::Duration::from_secs(1));
+//!        println!("handling connection from {:?}", addr);
+//!        let mut transport = Framed::new(socket, LinesCodec::new());
+//!        if let Err(e) = transport.send(String::from("Hello World!")).await {
+//!            println!("failed to send response: {:?}", e);
+//!        }
+//!    }
 //!
-//! #[test]
-//! fn time() {
-//!     let mut runtime = DeterministicRuntime::new();
-//!     let handle = runtime.handle();
-//!     runtime.block_on(async move {
-//!         delayed(handle).await;
-//!     });
-//! }
+//!    /// Start a server which will bind to the provided addr and repyl to clients.
+//!    async fn server<E>(env: E, addr: net::SocketAddr) -> Result<(), io::Error>
+//!    where
+//!        E: Environment,
+//!    {
+//!        let mut listener = env.bind(addr).await?;
+//!
+//!        while let Ok((socket, addr)) = listener.accept().await {
+//!            let request = handle(env.clone(), socket, addr);
+//!            env.spawn(request)
+//!        }
+//!        Ok(())
+//!    }
+//!
+//!
+//!    /// Create a client which will read a message from the server
+//!    async fn client<E>(env: E, addr: net::SocketAddr) -> Result<(), io::Error>
+//!    where
+//!        E: Environment,
+//!    {
+//!        let conn = env.connect(addr).await?;
+//!        let mut transport = Framed::new(conn, LinesCodec::new());
+//!        let result = transport.next().await.unwrap().unwrap();
+//!        assert_eq!(result, "Hello world!");
+//!        Ok(())
+//!    }
 //! ```
 //!
 //! [tokio]: https://github.com/tokio-rs
@@ -44,6 +73,62 @@ use tokio::io::{AsyncRead, AsyncWrite};
 pub mod deterministic;
 pub mod singlethread;
 
+mod example {
+    use crate::{Environment, TcpListener};
+    use futures::{SinkExt, StreamExt};
+    use std::{io, net, time};
+    use tokio::codec::{Framed, LinesCodec};
+
+    /// Start a client request handler which will write greetings to clients.
+    async fn handle<E>(env: E, socket: <E::TcpListener as TcpListener>::Stream, addr: net::SocketAddr)
+    where
+        E: Environment,
+    {
+        // delay the response, in deterministic mode this will immediately progress time.
+        env.delay_from(time::Duration::from_secs(1));
+        println!("handling connection from {:?}", addr);
+        let mut transport = Framed::new(socket, LinesCodec::new());
+        if let Err(e) = transport.send(String::from("Hello World!")).await {
+            println!("failed to send response: {:?}", e);
+        }
+    }
+
+    /// Start a server which will bind to the provided addr and repyl to clients.
+    async fn server<E>(env: E, addr: net::SocketAddr) -> Result<(), io::Error>
+    where
+        E: Environment,
+    {
+        let mut listener = env.bind(addr).await?;
+
+        while let Ok((socket, addr)) = listener.accept().await {
+            let request = handle(env.clone(), socket, addr);
+            env.spawn(request)
+        }
+        Ok(())
+    }
+
+
+    /// Create a client which will read a message from the server
+    async fn client<E>(env: E, addr: net::SocketAddr) -> Result<(), io::Error>
+    where
+        E: Environment,
+    {
+        let conn = env.connect(addr).await?;
+        let mut transport = Framed::new(conn, LinesCodec::new());
+        let result = transport.next().await.unwrap().unwrap();
+        assert_eq!(result, "Hello world!");
+        Ok(())
+    }
+
+    fn main() {
+        // Runtimes, networking and fault injection can be swapped out.
+        // let mut runtime = crate::singlethread::SingleThreadedRuntime::new().unwrap();
+        let mut runtime = crate::deterministic::DeterministicRuntime::new().unwrap();
+        let handle = runtime.handle();
+        let addr: net::SocketAddr = "127.0.0.1:9090".parse().unwrap();
+        runtime.block_on(server(handle, addr)).unwrap();
+    }
+}
 
 #[derive(Debug)]
 pub enum Error {
@@ -58,11 +143,10 @@ pub enum Error {
     },
 }
 
-
 #[async_trait]
-pub trait Environment: Unpin + Sized + Clone + Send {
-    type TcpStream: TcpStream + Send + 'static;
-    type TcpListener: TcpListener + Send + 'static;
+pub trait Environment: Unpin + Sized + Clone + Send + 'static {
+    type TcpStream: TcpStream + Send + 'static + Unpin;
+    type TcpListener: TcpListener + Send + 'static + Unpin;
 
     fn spawn<F>(&self, future: F)
     where

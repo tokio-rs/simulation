@@ -1,11 +1,7 @@
 use crate::Error;
 use async_trait::async_trait;
 use futures::Future;
-use std::{
-    net::SocketAddr,
-    io,
-    time
-};
+use std::{io, net::SocketAddr, time};
 use tokio_executor::current_thread;
 use tokio_net::driver::Reactor;
 use tokio_timer::{clock::Clock, timer};

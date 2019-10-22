@@ -177,7 +177,7 @@ where
 fn simulate(seed: u64) -> std::time::Duration {
     // A SingleThreaded runtime can be swapped in at will.
     // let mut runtime = SingleThreadedRuntime::new().unwrap();
-    let mut runtime = DeterministicRuntime::new_with_seed(seed);
+    let mut runtime = DeterministicRuntime::new_with_seed(seed).unwrap();
     let handle = runtime.handle();
     let bank_addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 9092);
     let start_time = handle.now();

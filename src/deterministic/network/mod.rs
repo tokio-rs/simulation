@@ -16,7 +16,7 @@ use tokio_executor::park::Park;
 mod pipe;
 mod stream;
 use async_trait::async_trait;
-pub use stream::{ClientConnection, ServerConnection, MemoryStream};
+pub use stream::{ClientConnection, MemoryStream, ServerConnection};
 
 #[derive(Debug)]
 struct Inner {
@@ -114,17 +114,14 @@ pub struct Listener {
 
 impl Stream for Listener {
     type Item = Result<stream::MemoryStream, io::Error>;
-    fn poll_next(
-        mut self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-    ) -> Poll<Option<Self::Item>> { 
+    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let next = futures::ready!(self.stream.poll_next_unpin(cx));
         if let Some((sock, _)) = next {
-            return Poll::Ready(Some(Ok(sock)))
+            return Poll::Ready(Some(Ok(sock)));
         } else {
-            return Poll::Ready(None)
+            return Poll::Ready(None);
         }
-    }    
+    }
 }
 
 #[async_trait]
@@ -279,7 +276,7 @@ mod tests {
     use super::*;
     use crate::Environment;
     use crate::TcpListener;
-    use futures::{StreamExt};
+    use futures::StreamExt;
     use std::sync;
     use tokio::codec::{Framed, LinesCodec};
 
@@ -305,9 +302,10 @@ mod tests {
             handle.spawn(handle_connection(new_conn));
         }
     }
+
     #[test]
     fn bind_and_connect() {
-        let mut runtime = crate::deterministic::DeterministicRuntime::new();
+        let mut runtime = crate::deterministic::DeterministicRuntime::new().unwrap();
         let handle = runtime.handle();
         let noop_fault_injector = crate::deterministic::FaultInjector::new_noop();
         let network_inner = Inner::new();

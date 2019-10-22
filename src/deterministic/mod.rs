@@ -13,11 +13,11 @@ use std::{
 };
 
 mod fault;
-pub use fault::{FaultInjectorHandle, FaultInjector};
+pub use fault::{FaultInjector, FaultInjectorHandle};
 mod network;
 mod time;
+pub use network::{ClientConnection, Listener, MemoryStream, ServerConnection};
 pub(crate) use time::Time;
-pub use network::{Listener, ClientConnection, ServerConnection, MemoryStream};
 
 #[derive(Debug, Clone)]
 pub struct DeterministicRuntimeHandle {
@@ -38,7 +38,7 @@ impl DeterministicRuntimeHandle {
 #[async_trait]
 impl crate::Environment for DeterministicRuntimeHandle {
     type TcpStream = network::ClientConnection;
-    type TcpListener = network::Listener;    
+    type TcpListener = network::Listener;
     fn spawn<F>(&self, future: F)
     where
         F: Future<Output = ()> + Send + 'static,
@@ -66,7 +66,6 @@ impl crate::Environment for DeterministicRuntimeHandle {
     {
         self.network.connect(addr.into()).await
     }
-    
 }
 
 type Executor = tokio_executor::current_thread::CurrentThread<
@@ -82,11 +81,12 @@ pub struct DeterministicRuntime {
 }
 
 impl DeterministicRuntime {
-    pub fn new() -> Self {
+    pub fn new() -> Result<Self, Error> {
         DeterministicRuntime::new_with_seed(0)
     }
-    pub fn new_with_seed(seed: u64) -> Self {
-        let reactor = tokio_net::driver::Reactor::new().unwrap();
+    pub fn new_with_seed(seed: u64) -> Result<Self, Error> {
+        let reactor =
+            tokio_net::driver::Reactor::new().map_err(|source| Error::RuntimeBuild { source })?;
         let reactor_handle = reactor.handle();
         let time = Time::new();
         let reactor = time.wrap_park(reactor);
@@ -107,13 +107,13 @@ impl DeterministicRuntime {
             network: network_handle,
             executor: executor.handle(),
         };
-        DeterministicRuntime {
+        Ok(DeterministicRuntime {
             executor,
             handle,
             reactor_handle,
             timer_handle,
             clock,
-        }
+        })
     }
 
     pub fn handle(&self) -> DeterministicRuntimeHandle {
@@ -169,7 +169,7 @@ mod tests {
     #[test]
     /// Test that delays accurately advance the clock.    
     fn delays() {
-        let mut runtime = DeterministicRuntime::new();
+        let mut runtime = DeterministicRuntime::new().unwrap();
         let handle = runtime.handle();
         runtime.block_on(async {
             let start_time = handle.now();
@@ -184,7 +184,7 @@ mod tests {
     /// Test that waiting on delays across spawned tasks results in the clock
     /// being advanced in accordance with the length of the delay.
     fn ordering() {
-        let mut runtime = DeterministicRuntime::new();
+        let mut runtime = DeterministicRuntime::new().unwrap();
         let handle = runtime.handle();
         runtime.block_on(async {
             let delay1 = handle.delay_from(Duration::from_secs(10));
@@ -210,7 +210,7 @@ mod tests {
     #[test]
     /// Test that the Tokio global timer and clock are both set correctly.
     fn globals() {
-        let mut runtime = DeterministicRuntime::new();
+        let mut runtime = DeterministicRuntime::new().unwrap();
         let handle = runtime.handle();
         runtime.block_on(async {
             let start_time = tokio_timer::clock::now();
