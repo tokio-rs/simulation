@@ -1,41 +1,41 @@
 #![allow(dead_code)]
 //! The goal of Simulation is to provide a set of low level components which can be
 //! used to write applications amenable to [FoundationDB style simulation testing](https://apple.github.io/foundationdb/testing.html).
-//! 
+//!
 //! Simulation is an abstraction over [Tokio], allowing application developers to write
 //! applications which are generic over sources of nondeterminism. Additionally, Simulation
-//! provides deterministic analogues to time, scheduling, network and IO. 
-//! 
+//! provides deterministic analogues to time, scheduling, network and IO.
+//!
 //! # Scheduling and Time
-//! 
+//!
 //! Simulation provides a mock source of time. Mock time will only advance when the executor
 //! has no more work to do. This can be used to force deterministic reordering of task execution.
-//! 
+//!
 //! When time is advanced, it is advanced instantly to a value which allows the executor to make
-//! progress. Applications which rely on timeouts can then be tested in a fraction of the time it 
+//! progress. Applications which rely on timeouts can then be tested in a fraction of the time it
 //! would normally take to test a particular execution ordering.
-//! 
+//!
 //! # Network
-//! 
+//!
 //! Simulation includes an in-memory network. Applications can use `Environment::bind` and `Environment::connect`
 //! to create in-memory connections between components. The in-memory connections will automatically have delays
 //! and disconnect faults injected, dependent on an initial seed value.
-//! 
+//!
 //! # Faults
-//! 
-//! Faults are injected based on a seedable RNG, causing IO delays and disconnects. 
+//!
+//! Faults are injected based on a seedable RNG, causing IO delays and disconnects.
 //! This is sufficient to trigger bugs in higher level components, such as message reordering.
-//! 
+//!
 //! By eliminating sources of nondeterminism, and basing fault injection on a seedable RNG, it's
-//! possible to run many thousands of tests in the span of a few seconds with different fault 
+//! possible to run many thousands of tests in the span of a few seconds with different fault
 //! injections. This allows testing different execution orderings. If a particular seed causes a
 //! failing execution ordering, developers can use the seed value to debug and fix their applications.
-//! 
-//! Once the error is fixed, the seed value can be used to setup a regression test to ensure that the 
+//!
+//! Once the error is fixed, the seed value can be used to setup a regression test to ensure that the
 //! issue stays fixed.
-//! 
+//!
 //! # Example
-//! 
+//!
 //! ```rust
 //!    use simulation::{Environment, TcpListener};
 //!    use futures::{SinkExt, StreamExt};
@@ -80,7 +80,7 @@
 //!            match env.connect(addr).await {
 //!                Err(_) => {
 //!                    // Sleep if the connection was rejected, retrying later.
-//!                    // In deterministic mode, this will just reorder task execution 
+//!                    // In deterministic mode, this will just reorder task execution
 //!                    // without waiting for time to advance.
 //!                    env.delay_from(time::Duration::from_secs(1)).await;
 //!                    continue;
