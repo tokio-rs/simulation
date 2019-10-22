@@ -375,7 +375,7 @@ mod tests {
             futures::pin_mut!(server_status);
             tokio_test::assert_pending!(futures::poll!(server_status.as_mut()), "expected the server status to be pending due to the MemoryConnection still being open");
             conn_handle.disconnect_client();
-            let server_status = server_status.await;            
+            let server_status = server_status.await;
             assert!(server_status.is_err(), "expected server to terminate because the client connection was closed");
         });
     }
