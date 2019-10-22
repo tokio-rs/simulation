@@ -1,3 +1,4 @@
+/*
 use hyper::service::{make_service_fn, service_fn};
 use hyper::{server::accept::Accept, Body, Error, Response};
 use simulation::{deterministic::DeterministicRuntime, Environment};
@@ -47,3 +48,4 @@ fn foo() {
             .unwrap();
     });
 }
+*/
