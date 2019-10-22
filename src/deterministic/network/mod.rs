@@ -2,10 +2,10 @@
 //! what the design should look like so I just slapped a bunch of
 //! stuff together. Sorry.
 use futures::channel::mpsc;
-use futures::{Poll, Sink, SinkExt, Stream, StreamExt, TryStreamExt};
+use futures::{Poll, SinkExt, Stream, StreamExt};
 pub(crate) use pipe::Pipe;
 use std::{
-    collections::{hash_map::Entry, HashMap, HashSet},
+    collections::{hash_map::Entry, HashMap},
     io, net, num,
     pin::Pin,
     sync,
@@ -13,7 +13,6 @@ use std::{
     time::Duration,
 };
 use tokio_executor::park::Park;
-use tokio_timer::clock::Now;
 mod pipe;
 mod stream;
 use async_trait::async_trait;
@@ -120,7 +119,7 @@ impl Stream for Listener {
         cx: &mut Context<'_>,
     ) -> Poll<Option<Self::Item>> { 
         let next = futures::ready!(self.stream.poll_next_unpin(cx));
-        if let Some((sock, addr)) = next {
+        if let Some((sock, _)) = next {
             return Poll::Ready(Some(Ok(sock)))
         } else {
             return Poll::Ready(None)
@@ -147,7 +146,7 @@ impl crate::TcpListener for Listener {
     fn ttl(&self) -> io::Result<u32> {
         Ok(self.ttl)
     }
-    fn set_ttl(&self, ttl: u32) -> io::Result<()> {
+    fn set_ttl(&self, _: u32) -> io::Result<()> {
         Ok(())
     }
 }
@@ -263,7 +262,7 @@ where
 
     fn inject_faults(&self) {
         let mut lock = self.inner.lock().unwrap();
-        for (k, v) in lock.fault_injectors.iter_mut() {
+        for (_, v) in lock.fault_injectors.iter_mut() {
             if let Some(idx) = self
                 .fault_injector
                 .pick_rand_connection_disconnect(0..v.len())
@@ -280,8 +279,7 @@ mod tests {
     use super::*;
     use crate::Environment;
     use crate::TcpListener;
-    use crate::TcpStream;
-    use futures::{channel::mpsc, StreamExt};
+    use futures::{StreamExt};
     use std::sync;
     use tokio::codec::{Framed, LinesCodec};
 
@@ -300,18 +298,18 @@ mod tests {
     async fn server(
         addr: net::SocketAddr,
         network: NetworkHandle,
-        handle: crate::DeterministicRuntimeHandle,
+        handle: crate::deterministic::DeterministicRuntimeHandle,
     ) {
         let mut listener = network.bind(addr).expect("expected to be able to bind");
-        while let Ok((new_conn, addr)) = listener.accept().await {
+        while let Ok((new_conn, _)) = listener.accept().await {
             handle.spawn(handle_connection(new_conn));
         }
     }
     #[test]
     fn bind_and_connect() {
-        let mut runtime = crate::DeterministicRuntime::new();
+        let mut runtime = crate::deterministic::DeterministicRuntime::new();
         let handle = runtime.handle();
-        let noop_fault_injector = super::super::FaultInjector::new_noop();
+        let noop_fault_injector = crate::deterministic::FaultInjector::new_noop();
         let network_inner = Inner::new();
         let network_inner = sync::Arc::new(sync::Mutex::new(network_inner));
         let network_handle = NetworkHandle::new(network_inner, noop_fault_injector.handle());

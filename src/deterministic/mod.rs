@@ -4,16 +4,16 @@
 //! testing for all.
 //!
 
-use crate::runtime::Error;
+use crate::Error;
 use async_trait::async_trait;
 use futures::Future;
 use std::{
     io, net,
     time::{Duration, Instant},
 };
-use tokio_executor::park::Park;
-pub(crate) mod fault;
-pub(crate) use fault::{FaultInjector, FaultInjectorHandle};
+
+mod fault;
+pub use fault::{FaultInjectorHandle, FaultInjector};
 mod network;
 mod time;
 pub(crate) use time::Time;

@@ -1,6 +1,5 @@
-use super::super::FaultInjectorHandle;
 use bytes::{Buf, BytesMut, IntoBuf};
-use futures::{FutureExt, Poll};
+use futures::Poll;
 use std::{io, pin::Pin, task::Context};
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio_sync::AtomicWaker;
@@ -96,14 +95,13 @@ impl AsyncWrite for Pipe {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::Environment;
-    use tokio::codec::{Framed, LinesCodec};
+    use crate::Environment;    
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
     #[test]
     /// Tests that a pipe can transport values.
     fn bounded_pipe() {
-        let mut runtime = crate::DeterministicRuntime::new_with_seed(3);
+        let mut runtime = crate::deterministic::DeterministicRuntime::new_with_seed(3);
         let handle = runtime.handle();
         runtime.block_on(async {
             let rw = Pipe::new();
@@ -124,8 +122,7 @@ mod tests {
     /// side should always return Ok(0).
     /// TODO: Check if this logic matches TcpStream
     fn shutdown_pipe() {
-        let mut runtime = crate::DeterministicRuntime::new();
-        let handle = runtime.handle();
+        let mut runtime = crate::deterministic::DeterministicRuntime::new();
         let rw = Pipe::new();
         runtime.block_on(async {
             let (mut r, mut w) = tokio::io::split(rw);

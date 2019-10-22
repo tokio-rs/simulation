@@ -1,4 +1,4 @@
-#![allow(dead_code, unused_imports, unused_variables)]
+#![allow(dead_code)]
 //! This crate provides an abstraction over the [tokio] [CurrentThread] runtime
 //! which allows for simulating applications.
 //!
@@ -37,18 +37,27 @@
 //! [Timeout]:[tokio_timer::Timeout]
 
 use async_trait::async_trait;
-use futures::{channel::oneshot, Future, FutureExt, Poll, Stream};
-use std::{io, net, pin::Pin, task::Context, time};
-
-pub(crate) use runtime::deterministic::fault::{FaultInjector, FaultInjectorHandle};
-pub use runtime::{
-    DeterministicRuntime, DeterministicRuntimeHandle, SingleThreadedRuntime,
-    SingleThreadedRuntimeHandle,
-};
-
-pub use runtime::deterministic;
+use futures::{Future, FutureExt};
+use std::{io, net, time};
 use tokio::io::{AsyncRead, AsyncWrite};
-mod runtime;
+
+pub mod deterministic;
+pub mod singlethread;
+
+
+#[derive(Debug)]
+pub enum Error {
+    Spawn {
+        source: tokio_executor::SpawnError,
+    },
+    RuntimeBuild {
+        source: io::Error,
+    },
+    CurrentThreadRun {
+        source: tokio_executor::current_thread::RunError,
+    },
+}
+
 
 #[async_trait]
 pub trait Environment: Unpin + Sized + Clone + Send {
@@ -93,15 +102,13 @@ pub trait TcpListener {
     fn set_ttl(&self, ttl: u32) -> io::Result<()>;
 }
 
-pub fn spawn_with_result<F, E, U>(env: &E, future: F) -> impl Future<Output = Option<U>>
+pub fn spawn_with_result<F, E, U>(env: &E, future: F) -> impl Future<Output = U>
 where
     F: Future<Output = U> + Send + 'static,
     U: Send + 'static,
     E: Environment,
 {
-    let (tx, rx) = oneshot::channel();
-    env.spawn(async {
-        tx.send(future.await).unwrap_or(());
-    });
-    Box::new(rx).map(|v| v.ok())
+    let (remote, handle) = future.remote_handle();
+    env.spawn(remote);
+    Box::new(handle)
 }

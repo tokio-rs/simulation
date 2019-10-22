@@ -96,7 +96,7 @@ impl State {
 }
 
 #[derive(Debug)]
-pub(crate) struct FaultInjector {
+pub struct FaultInjector {
     config: Config,
     inner: sync::Arc<sync::Mutex<State>>,
 }
@@ -130,7 +130,7 @@ impl FaultInjector {
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct FaultInjectorHandle {
+pub struct FaultInjectorHandle {
     config: Config,
     inner: sync::Arc<sync::Mutex<State>>,
 }

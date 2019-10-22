@@ -1,8 +1,8 @@
 use hyper::service::{make_service_fn, service_fn};
-use hyper::{Body, Error, Response, Server, server::accept::Accept};
-use simulation::{DeterministicRuntime, DeterministicRuntimeHandle, Environment, TcpListener, SingleThreadedRuntime};
+use hyper::{Body, Error, Response, server::accept::Accept};
+use simulation::{deterministic::DeterministicRuntime, Environment};
 use std::{net, pin::Pin, task::Context, io};
-use tokio::io::{AsyncRead, AsyncWrite};
+
 use futures::{Poll, StreamExt};
 
 struct HyperAccept {
@@ -39,6 +39,8 @@ fn foo() {
             }
         });
         let accept = HyperAccept{inner: listener};
-        hyper::server::Builder::new(accept, http).serve(make_service).await.unwrap();
+        hyper::server::Builder::new(accept, http)
+            
+            .serve(make_service).await.unwrap();
     });
 }

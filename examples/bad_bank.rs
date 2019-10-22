@@ -10,7 +10,7 @@
 
 use bytes::BytesMut;
 use futures::{channel::oneshot, FutureExt, SinkExt, StreamExt};
-use simulation::{DeterministicRuntime, Environment, TcpListener};
+use simulation::{deterministic::DeterministicRuntime, Environment, TcpListener};
 use std::{
     io,
     net::Ipv4Addr,

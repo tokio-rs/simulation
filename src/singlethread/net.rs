@@ -1,8 +1,8 @@
 use async_trait::async_trait;
-use futures::{FutureExt, Poll};
-use std::{io, net, pin::Pin, task::Context};
+use tokio::net::{TcpListener, TcpStream};
+use std::{io, net};
 
-impl crate::TcpStream for tokio::net::TcpStream {
+impl crate::TcpStream for TcpStream {
     fn local_addr(&self) -> Result<net::SocketAddr, io::Error> {
         return self.local_addr();
     }
@@ -15,7 +15,7 @@ impl crate::TcpStream for tokio::net::TcpStream {
 }
 
 #[async_trait]
-impl crate::TcpListener for tokio::net::TcpListener {
+impl crate::TcpListener for TcpListener {
     type Stream = tokio::net::TcpStream;
     async fn accept(&mut self) -> Result<(Self::Stream, net::SocketAddr), io::Error> {
         tokio::net::TcpListener::accept(self).await

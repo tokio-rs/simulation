@@ -1,0 +1,119 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="CargoProjects">
+    <cargoProject FILE="$PROJECT_DIR$/Cargo.toml" />
+  </component>
+  <component name="ChangeListManager">
+    <list default="true" id="158d7db0-0abc-4d68-9323-19499e678319" name="Default Changelist" comment="">
+      <change beforePath="$PROJECT_DIR$/src/lib.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/lib.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/runtime/deterministic/fault.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/deterministic/fault.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/runtime/deterministic/mod.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/deterministic/mod.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/runtime/deterministic/network/mod.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/deterministic/network/mod.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/runtime/deterministic/network/pipe.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/deterministic/network/pipe.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/runtime/deterministic/network/stream.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/deterministic/network/stream.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/runtime/deterministic/time.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/deterministic/time.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/runtime/mod.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/mod.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/runtime/singlethread/mod.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/singlethread/mod.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/runtime/singlethread/net.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/singlethread/net.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tests/tonic.rs" beforeDir="false" afterPath="$PROJECT_DIR$/tests/tonic.rs" afterDir="false" />
+    </list>
+    <option name="EXCLUDED_CONVERTED_TO_IGNORED" value="true" />
+    <option name="SHOW_DIALOG" value="false" />
+    <option name="HIGHLIGHT_CONFLICTS" value="true" />
+    <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
+    <option name="LAST_RESOLUTION" value="IGNORE" />
+  </component>
+  <component name="CodeStyleSettingsInfer">
+    <option name="done" value="true" />
+  </component>
+  <component name="DefaultGradleProjectSettings">
+    <option name="isMigrated" value="true" />
+  </component>
+  <component name="Git.Settings">
+    <option name="RECENT_GIT_ROOT_PATH" value="$PROJECT_DIR$" />
+  </component>
+  <component name="IgnoredFileRootStore">
+    <option name="generatedRoots">
+      <set>
+        <option value="$PROJECT_DIR$/.idea" />
+      </set>
+    </option>
+  </component>
+  <component name="MacroExpansionManager">
+    <option name="directoryName" value="pnLHfXLB" />
+  </component>
+  <component name="ProjectCodeStyleSettingsMigration">
+    <option name="version" value="1" />
+  </component>
+  <component name="PropertiesComponent">
+    <property name="WebServerToolWindowFactoryState" value="false" />
+    <property name="nodejs_interpreter_path.stuck_in_default_project" value="undefined stuck path" />
+    <property name="nodejs_npm_path_reset_for_default_project" value="true" />
+    <property name="org.rust.cargo.project.model.PROJECT_DISCOVERY" value="true" />
+    <property name="settings.editor.selected.configurable" value="editor.preferences.gutterIcons" />
+  </component>
+  <component name="RecentsManager">
+    <key name="MoveFile.RECENT_KEYS">
+      <recent name="$PROJECT_DIR$/src" />
+    </key>
+  </component>
+  <component name="RunDashboard">
+    <option name="ruleStates">
+      <list>
+        <RuleState>
+          <option name="name" value="ConfigurationTypeDashboardGroupingRule" />
+        </RuleState>
+        <RuleState>
+          <option name="name" value="StatusDashboardGroupingRule" />
+        </RuleState>
+      </list>
+    </option>
+  </component>
+  <component name="RunManager">
+    <configuration name="Expand simulation::runtime::singlethread::net" type="CargoCommandRunConfiguration" factoryName="Cargo Command" temporary="true">
+      <option name="channel" value="DEFAULT" />
+      <option name="command" value="expand --lib --color=always --theme=GitHub --tests runtime::singlethread::net" />
+      <option name="allFeatures" value="false" />
+      <option name="nocapture" value="false" />
+      <option name="emulateTerminal" value="false" />
+      <option name="backtrace" value="SHORT" />
+      <option name="workingDirectory" value="file://$PROJECT_DIR$" />
+      <envs />
+      <method v="2">
+        <option name="CARGO.BUILD_TASK_PROVIDER" enabled="true" />
+      </method>
+    </configuration>
+    <recent_temporary>
+      <list>
+        <item itemvalue="Cargo Command.Expand simulation::runtime::singlethread::net" />
+      </list>
+    </recent_temporary>
+  </component>
+  <component name="RustProjectSettings">
+    <option name="toolchainHomeDirectory" value="$USER_HOME$/.cargo/bin" />
+  </component>
+  <component name="SvnConfiguration">
+    <configuration />
+  </component>
+  <component name="TaskManager">
+    <task active="true" id="Default" summary="Default task">
+      <changelist id="158d7db0-0abc-4d68-9323-19499e678319" name="Default Changelist" comment="" />
+      <created>1571709460649</created>
+      <option name="number" value="Default" />
+      <option name="presentableId" value="Default" />
+      <updated>1571709460649</updated>
+    </task>
+    <servers />
+  </component>
+  <component name="Vcs.Log.Tabs.Properties">
+    <option name="TAB_STATES">
+      <map>
+        <entry key="MAIN">
+          <value>
+            <State />
+          </value>
+        </entry>
+      </map>
+    </option>
+  </component>
+</project>
