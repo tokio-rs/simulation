@@ -84,7 +84,7 @@ impl DeterministicRuntime {
     pub fn new() -> Result<Self, Error> {
         DeterministicRuntime::new_with_seed(0)
     }
-    pub fn new_with_seed(seed: u64) -> Result<Self, Error> {
+    pub fn new_with_seed(seed: u64) -> Result<Self, Error> {        
         let reactor =
             tokio_net::driver::Reactor::new().map_err(|source| Error::RuntimeBuild { source })?;
         let reactor_handle = reactor.handle();

@@ -98,6 +98,7 @@ impl tokio_timer::clock::Now for Now {
     }
 }
 
+#[allow(deprecated)]
 impl tokio_timer::timer::Now for Now {
     fn now(&mut self) -> time::Instant {
         tokio_timer::clock::Now::now(self)
