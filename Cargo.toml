@@ -1,6 +1,6 @@
 [package]
 name = "simulation"
-version = "0.0.1"
+version = "0.0.1-alpha.0"
 authors = ["Gardner Vickers <gardner@vickers.me>"]
 edition = "2018"
 license = "MIT"
