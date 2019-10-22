@@ -55,13 +55,13 @@ impl Time {
     ///
     /// [`Now`]:[tokio_timer::clock::Now]
     pub(crate) fn clone_now(&self) -> Now {
-        return Now::new(sync::Arc::clone(&self.inner));
+        Now::new(sync::Arc::clone(&self.inner))
     }
 
     /// Returns a new instance of `tokio_timer::clock::Clock` which wraps
     /// this determinstic time source.
     pub(crate) fn clone_tokio_clock(&self) -> tokio_timer::clock::Clock {
-        return tokio_timer::clock::Clock::new_with_now(self.clone_now());
+        tokio_timer::clock::Clock::new_with_now(self.clone_now())
     }
 
     /// Wrap the provided `Park` instance in a new `Park`, which instantly
@@ -72,7 +72,7 @@ impl Time {
     where
         P: tokio_executor::park::Park,
     {
-        return Park::wrap(sync::Arc::clone(&self.inner), park);
+        Park::wrap(sync::Arc::clone(&self.inner), park)
     }
 }
 
@@ -135,6 +135,6 @@ where
     fn park_timeout(&mut self, duration: time::Duration) -> Result<(), Self::Error> {
         let mut lock = self.inner.lock().unwrap();
         lock.advance(duration);
-        return self.inner_park.park_timeout(time::Duration::from_millis(0));
+        self.inner_park.park_timeout(time::Duration::from_millis(0))
     }
 }

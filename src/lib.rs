@@ -215,10 +215,10 @@ pub trait Environment: Unpin + Sized + Clone + Send + 'static {
     /// Creates a timeout future which will execute blah blah
     fn timeout<T>(&self, value: T, timeout: time::Duration) -> tokio_timer::Timeout<T>;
 
-    async fn bind<'a, A>(&'a self, addr: A) -> io::Result<Self::TcpListener>
+    async fn bind<A>(&self, addr: A) -> io::Result<Self::TcpListener>
     where
         A: Into<net::SocketAddr> + Send + Sync;
-    async fn connect<'a, A>(&'a self, addr: A) -> io::Result<Self::TcpStream>
+    async fn connect<A>(&self, addr: A) -> io::Result<Self::TcpStream>
     where
         A: Into<net::SocketAddr> + Send + Sync;
 }

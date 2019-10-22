@@ -48,7 +48,7 @@ impl Inner {
             if self.listeners.contains_key(&port) {
                 return Err(io::ErrorKind::AddrInUse.into());
             }
-            return Ok(port);
+            Ok(port)
         } else {
             // pick next available port
             loop {
@@ -67,14 +67,14 @@ impl Inner {
         }
     }
 
-    fn deregister_listener(&mut self, port: &num::NonZeroU16) {
-        self.listeners.remove(port);
-        if let Some(faults) = self.fault_injectors.get(port) {
+    fn deregister_listener(&mut self, port: num::NonZeroU16) {
+        self.listeners.remove(&port);
+        if let Some(faults) = self.fault_injectors.get(&port) {
             for fault in faults {
                 fault.disconnect();
             }
         }
-        self.fault_injectors.remove(port);
+        self.fault_injectors.remove(&port);
     }
 
     fn register_new_listener(
@@ -95,13 +95,12 @@ impl Inner {
 
     fn listener_channel(
         &self,
-        server_port: &num::NonZeroU16,
+        server_port: num::NonZeroU16,
     ) -> Result<mpsc::Sender<(stream::ServerConnection, net::SocketAddr)>, io::Error> {
-        return self
-            .listeners
-            .get(server_port)
+        self.listeners
+            .get(&server_port)
             .cloned()
-            .ok_or(io::ErrorKind::ConnectionRefused.into());
+            .ok_or_else(|| io::ErrorKind::ConnectionRefused.into())
     }
 }
 
@@ -117,9 +116,9 @@ impl Stream for Listener {
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let next = futures::ready!(self.stream.poll_next_unpin(cx));
         if let Some((sock, _)) = next {
-            return Poll::Ready(Some(Ok(sock)));
+            Poll::Ready(Some(Ok(sock)))
         } else {
-            return Poll::Ready(None);
+            Poll::Ready(None)
         }
     }
 }
@@ -129,9 +128,9 @@ impl crate::TcpListener for Listener {
     type Stream = stream::MemoryStream;
     async fn accept(&mut self) -> Result<(Self::Stream, net::SocketAddr), io::Error> {
         if let Some(sock) = self.stream.next().await {
-            return Ok(sock);
+            Ok(sock)
         } else {
-            return Err(io::ErrorKind::NotConnected.into());
+            Err(io::ErrorKind::NotConnected.into())
         }
     }
     fn local_addr(&self) -> Result<net::SocketAddr, io::Error> {
@@ -150,7 +149,7 @@ impl crate::TcpListener for Listener {
 
 impl Drop for Listener {
     fn drop(&mut self) {
-        self.inner.lock().unwrap().deregister_listener(&self.port)
+        self.inner.lock().unwrap().deregister_listener(self.port)
     }
 }
 
@@ -174,10 +173,9 @@ impl NetworkHandle {
         &self,
         addr: net::SocketAddr,
     ) -> Result<stream::ClientConnection, io::Error> {
-        let port: num::NonZeroU16 = num::NonZeroU16::new(addr.port()).ok_or(
-            <io::ErrorKind as Into<io::Error>>::into(io::ErrorKind::InvalidInput),
-        )?;
-        let mut channel = { self.inner.lock().unwrap().listener_channel(&port)? };
+        let port: num::NonZeroU16 = num::NonZeroU16::new(addr.port())
+            .ok_or_else(|| <io::ErrorKind as Into<io::Error>>::into(io::ErrorKind::InvalidInput))?;
+        let mut channel = { self.inner.lock().unwrap().listener_channel(port)? };
         let (fault_handle, client, server) = stream::new_pair(self.fault_injector.clone(), port);
         channel
             .send((server, client.local_addr()))
@@ -192,7 +190,7 @@ impl NetworkHandle {
                 }
             };
         }
-        return Ok(client);
+        Ok(client)
     }
 
     pub fn bind(&self, addr: net::SocketAddr) -> Result<Listener, io::Error> {

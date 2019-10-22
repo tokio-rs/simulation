@@ -40,21 +40,21 @@ impl AsyncRead for Pipe {
         }
 
         if let Some(mut bytes) = self.buf.take() {
-            debug_assert!(bytes.len() > 0);
+            debug_assert!(!bytes.is_empty());
             let amt = std::cmp::min(bytes.len(), dst.len());
             let b = bytes.split_to(amt).freeze();
             let mut b = b.into_buf();
             b.copy_to_slice(&mut dst[..amt]);
-            if bytes.len() == 0 {
+            if bytes.is_empty() {
                 self.buf.take();
             } else {
                 self.buf.replace(bytes);
             }
             self.waker.wake();
-            return Poll::Ready(Ok(amt));
+            Poll::Ready(Ok(amt))
         } else {
             self.waker.register_by_ref(cx.waker());
-            return Poll::Pending;
+            Poll::Pending
         }
     }
 }
@@ -68,14 +68,13 @@ impl AsyncWrite for Pipe {
         if self.dropped {
             return Poll::Ready(Err(io::ErrorKind::BrokenPipe.into()));
         }
-
-        if let Some(_) = self.buf {
+        if self.buf.is_some() {
             self.waker.register_by_ref(cx.waker());
-            return Poll::Pending;
+            Poll::Pending
         } else {
             self.buf = Some(buf.into());
             self.waker.wake();
-            return Poll::Ready(Ok(buf.len()));
+            Poll::Ready(Ok(buf.len()))
         }
     }
 
@@ -107,9 +106,9 @@ mod tests {
             let rw = Pipe::new();
             let (mut r, mut w) = tokio::io::split(rw);
             handle.spawn(async move {
-                w.write_all("foo".as_bytes()).await.unwrap();
-                w.write_all("bar".as_bytes()).await.unwrap();
-                w.write_all("baz".as_bytes()).await.unwrap();
+                w.write_all(b"foo").await.unwrap();
+                w.write_all(b"bar").await.unwrap();
+                w.write_all(b"baz").await.unwrap();
             });
             let mut target = vec![0; 9];
             r.read_exact(&mut target).await.unwrap();
@@ -126,10 +125,10 @@ mod tests {
         let rw = Pipe::new();
         runtime.block_on(async {
             let (mut r, mut w) = tokio::io::split(rw);
-            w.write("foo".as_bytes()).await.unwrap();
+            w.write(b"foo").await.unwrap();
             w.shutdown().await.unwrap();
             assert!(
-                w.write_all("foo".as_bytes()).await.is_err(),
+                w.write_all(b"foo").await.is_err(),
                 "expected write to fail after shutdown"
             );
             let mut target = vec![0; 0];

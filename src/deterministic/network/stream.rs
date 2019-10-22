@@ -66,10 +66,8 @@ impl MemoryConnectionFaultInjector {
             fault_injector.clone(),
             Mode::Client,
         );
-        let server = MemoryStreamFaultInjectorHandle::new_with_fault_injector(
-            fault_injector.clone(),
-            Mode::Server,
-        );
+        let server =
+            MemoryStreamFaultInjectorHandle::new_with_fault_injector(fault_injector, Mode::Server);
         Self { client, server }
     }
 
@@ -134,14 +132,14 @@ impl MemoryStreamFaultInjectorHandle {
         if let Some(mut delay) = lock.delay.take() {
             if let Poll::Pending = delay.poll_unpin(cx) {
                 lock.delay.replace(delay);
-                return Poll::Pending;
+                Poll::Pending
             } else {
-                return Poll::Ready(());
+                Poll::Ready(())
             }
         } else {
             let new = lock.fault_injector.socket_read_delay();
             std::mem::replace(&mut lock.delay, new);
-            return Poll::Ready(());
+            Poll::Ready(())
         }
     }
 
@@ -256,7 +254,7 @@ impl AsyncRead for MemoryStream {
             return Poll::Ready(Err(e));
         }
         let reader = Pin::new(&mut self.reader);
-        return reader.poll_read(cx, buf);
+        reader.poll_read(cx, buf)
     }
 }
 
@@ -271,7 +269,7 @@ impl AsyncWrite for MemoryStream {
             return Poll::Ready(Err(e));
         }
         let writer = Pin::new(&mut self.writer);
-        return writer.poll_write(cx, buf);
+        writer.poll_write(cx, buf)
     }
     fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), io::Error>> {
         futures::ready!(self.as_mut().fault_injector.poll_delay(cx));
@@ -279,7 +277,7 @@ impl AsyncWrite for MemoryStream {
             return Poll::Ready(Err(e));
         }
         let writer = Pin::new(&mut self.writer);
-        return writer.poll_flush(cx);
+        writer.poll_flush(cx)
     }
     fn poll_shutdown(
         mut self: Pin<&mut Self>,
@@ -287,7 +285,7 @@ impl AsyncWrite for MemoryStream {
     ) -> Poll<Result<(), io::Error>> {
         futures::ready!(self.as_mut().fault_injector.poll_delay(cx));
         let writer = Pin::new(&mut self.writer);
-        return writer.poll_shutdown(cx);
+        writer.poll_shutdown(cx)
     }
 }
 
@@ -393,7 +391,7 @@ mod tests {
             futures::pin_mut!(server_status);
             tokio_test::assert_pending!(futures::poll!(server_status.as_mut()), "expected the server status to be pending due to the MemoryConnection still being open");
             conn_handle.disconnect_server();
-            let result = client_conn.write_all("foo".as_bytes()).await;
+            let result = client_conn.write_all(b"foo").await;
             assert!(result.is_err(), "expected write to fail because the server was disconnected");            
         });
     }

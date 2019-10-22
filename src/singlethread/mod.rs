@@ -34,13 +34,13 @@ impl crate::Environment for SingleThreadedRuntimeHandle {
     fn timeout<T>(&self, value: T, timeout: time::Duration) -> tokio::timer::Timeout<T> {
         self.timer_handle.timeout(value, timeout)
     }
-    async fn bind<'a, A>(&'a self, addr: A) -> Result<Self::TcpListener, io::Error>
+    async fn bind<A>(&self, addr: A) -> Result<Self::TcpListener, io::Error>
     where
         A: Into<SocketAddr> + Send + Sync,
     {
         tokio::net::TcpListener::bind(addr.into()).await
     }
-    async fn connect<'a, A>(&'a self, addr: A) -> Result<Self::TcpStream, io::Error>
+    async fn connect<A>(&self, addr: A) -> Result<Self::TcpStream, io::Error>
     where
         A: Into<SocketAddr> + Send + Sync,
     {

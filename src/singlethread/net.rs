@@ -4,13 +4,13 @@ use tokio::net::{TcpListener, TcpStream};
 
 impl crate::TcpStream for TcpStream {
     fn local_addr(&self) -> Result<net::SocketAddr, io::Error> {
-        return self.local_addr();
+        self.local_addr()
     }
     fn peer_addr(&self) -> Result<net::SocketAddr, io::Error> {
-        return self.peer_addr();
+        self.peer_addr()
     }
     fn shutdown(&self) -> Result<(), io::Error> {
-        unimplemented!()
+        TcpStream::shutdown(self, net::Shutdown::Both)
     }
 }
 

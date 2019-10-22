@@ -46,7 +46,7 @@ impl tokio::codec::Decoder for Codec {
             .decode(src)
             .map_err(|_| io::ErrorKind::InvalidData)?
         {
-            let parts: Vec<&str> = line.split(" ").collect();
+            let parts: Vec<&str> = line.split(' ').collect();
             if parts[0] == "deposit" {
                 return Ok(Some(BankOperations::Deposit {
                     amount: parts[1].parse().unwrap(),
@@ -65,9 +65,9 @@ impl tokio::codec::Decoder for Codec {
                     balance: parts[1].parse().unwrap(),
                 }));
             }
-            return Err(io::ErrorKind::InvalidData.into());
+            Err(io::ErrorKind::InvalidData.into())
         } else {
-            return Ok(None);
+            Ok(None)
         }
     }
 }
@@ -80,13 +80,12 @@ impl tokio::codec::Encoder for Codec {
         let encoded = match item {
             Deposit { amount } => format!("deposit {}", amount),
             Withdraw { amount } => format!("withdraw {}", amount),
-            BalanceRequest => format!("balancereq"),
+            BalanceRequest => "balancereq".to_string(),
             BalanceResponse { balance } => format!("balanceresp {}", balance),
         };
-        return self
-            .inner
+        self.inner
             .encode(encoded, dst)
-            .map_err(|_| io::ErrorKind::InvalidData.into());
+            .map_err(|_| io::ErrorKind::InvalidData.into())
     }
 }
 
@@ -97,37 +96,30 @@ async fn banking_server<E>(
 ) where
     E: Environment,
 {
-    let user_balance = std::sync::Arc::new(std::sync::Mutex::new(1000usize));
-
+    use std::sync::atomic::Ordering;
+    let balance = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(1000));
     let mut listener = handle.bind(bind_addr).await.unwrap();
     accepting.send(true).unwrap();
 
     while let Ok((new_connection, _)) = listener.accept().await {
         let framed_read = Framed::new(new_connection, Codec::wrap(LinesCodec::new()));
         let (mut sink, mut stream) = framed_read.split();
-
+        let user_balance = Arc::clone(&balance);
         // spawn a new worker to handle the connection
-        let balance_handle = Arc::clone(&user_balance);
         handle.spawn(async move {
             while let Some(Ok(message)) = stream.next().await {
                 match message {
                     BankOperations::Deposit { amount } => {
-                        let mut lock = balance_handle.lock().unwrap();
-                        *lock += amount;
+                        user_balance.fetch_add(amount, Ordering::SeqCst);
                     }
                     BankOperations::Withdraw { amount } => {
-                        let mut lock = balance_handle.lock().unwrap();
-                        if *lock - amount <= 0 {
-                            assert!(false, "overdraft detected!");
+                        if user_balance.load(Ordering::SeqCst) == 0 {
+                            panic!("overdraft detected!");
                         }
-
-                        *lock -= amount;
+                        user_balance.fetch_sub(amount, Ordering::SeqCst);
                     }
                     BankOperations::BalanceRequest => {
-                        let current_balance = {
-                            let lock = balance_handle.lock().unwrap();
-                            *lock
-                        };
+                        let current_balance = user_balance.load(Ordering::SeqCst);
                         let message = BankOperations::BalanceResponse {
                             balance: current_balance,
                         };
@@ -186,7 +178,7 @@ fn simulate(seed: u64) -> std::time::Duration {
         // setup a channel to notify us when a bind happens
         let (bind_tx, bind_rx) = oneshot::channel();
         let mut server_fut = simulation::spawn_with_result(&handle, async move {
-            banking_server(server_handle, bank_addr.clone(), bind_tx).await;
+            banking_server(server_handle, bank_addr, bind_tx).await;
         })
         .fuse();
         bind_rx.await.unwrap();

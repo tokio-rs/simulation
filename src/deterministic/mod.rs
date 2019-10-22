@@ -54,13 +54,13 @@ impl crate::Environment for DeterministicRuntimeHandle {
     fn timeout<T>(&self, value: T, timeout: Duration) -> tokio_timer::Timeout<T> {
         self.timer.timeout(value, timeout)
     }
-    async fn bind<'a, A>(&'a self, addr: A) -> io::Result<Self::TcpListener>
+    async fn bind<A>(&self, addr: A) -> io::Result<Self::TcpListener>
     where
         A: Into<net::SocketAddr> + Send + Sync,
     {
         self.network.bind(addr.into())
     }
-    async fn connect<'a, A>(&'a self, addr: A) -> io::Result<Self::TcpStream>
+    async fn connect<A>(&self, addr: A) -> io::Result<Self::TcpStream>
     where
         A: Into<net::SocketAddr> + Send + Sync,
     {
@@ -101,9 +101,9 @@ impl DeterministicRuntime {
         let executor = tokio_executor::current_thread::CurrentThread::new_with_park(network);
         let handle = DeterministicRuntimeHandle {
             reactor: reactor_handle.clone(),
-            time: time.clone(),
+            time,
             timer: timer_handle.clone(),
-            fault_injector: fault_injector_handle.clone(),
+            fault_injector: fault_injector_handle,
             network: network_handle,
             executor: executor.handle(),
         };
