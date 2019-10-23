@@ -57,7 +57,7 @@ issue stays fixed.
        }
    }
 
-   /// Start a server which will bind to the provided addr and repyl to clients.
+   /// Start a server which will bind to the provided addr and reply to clients.
    async fn server<E>(env: E, addr: net::SocketAddr) -> Result<(), io::Error>
    where
        E: Environment,

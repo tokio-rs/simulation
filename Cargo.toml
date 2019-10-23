@@ -6,8 +6,12 @@ edition = "2018"
 license = "MIT"
 repository = "https://github.com/gardnervickers/simulation"
 description = """
-Framework for deterministic simulation testing.
+Framework for FoundationDB style deterministic simulation testing.
 """
+readme = "README.md"
+categories = ["simulation", "asynchronous", "network-programming"]
+keywords = ["simulation", "deterministic", "asynchronous", "testing"]
+
 [dependencies]
 tokio = {version = "0.2.0-alpha.5", features = ["sync"]}
 futures-preview = {version = "0.3.0-alpha.19", features = ["async-await"]}
