@@ -12,28 +12,13 @@ struct HyperExecutor<T> {
     inner: T,
 }
 
-impl<T> tokio_executor::Executor for HyperExecutor<T>
-where
-    T: simulation::Environment,
+impl<T, F> tokio_executor::TypedExecutor<F> for HyperExecutor<T>
+where F: Future<Output = ()> + Send + 'static,
+    T: simulation::Environment
 {
-    fn spawn(
-        &mut self,
-        future: Pin<Box<dyn Future<Output = ()> + Send>>,
-    ) -> Result<(), tokio_executor::SpawnError> {
-        <T as Environment>::spawn(&self.inner, future);
+    fn spawn(&mut self, future: F) -> Result<(), tokio_executor::SpawnError> {
+        <T as Environment>::spawn(&self.inner, Box::pin(future));
         Ok(())
-    }
-}
-
-impl<T> tokio_executor::Executor for &HyperExecutor<T>
-where
-    T: simulation::Environment,
-{
-    fn spawn(
-        &mut self,
-        future: Pin<Box<dyn Future<Output = ()> + Send>>,
-    ) -> Result<(), tokio_executor::SpawnError> {
-        unimplemented!()
     }
 }
 
