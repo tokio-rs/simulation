@@ -25,6 +25,18 @@ where
     }
 }
 
+impl<T> tokio_executor::Executor for &HyperExecutor<T>
+where
+    T: simulation::Environment,
+{
+    fn spawn(
+        &mut self,
+        future: Pin<Box<dyn Future<Output = ()> + Send>>,
+    ) -> Result<(), tokio_executor::SpawnError> {
+        unimplemented!()
+    }
+}
+
 struct HyperAccept<T>
 where
     T: simulation::TcpListener,
@@ -44,6 +56,7 @@ where
     ) -> Poll<Option<Result<Self::Conn, Self::Error>>> {
         let accept = self.inner.accept();
         futures::pin_mut!(accept);
+
         match futures::ready!(accept.poll(cx)) {
             Ok((sock, _)) => return Poll::Ready(Some(Ok(sock))),
             Err(e) => return Poll::Ready(Some(Err(e))),
@@ -77,8 +90,6 @@ fn foo() {
         };
         hyper::server::Builder::new(accept, http)
             .executor(executor)
-            .serve(make_service)
-            .await
-            .unwrap();
+            .serve(make_service);
     });
 }
