@@ -38,7 +38,7 @@ impl DeterministicRuntimeHandle {
 #[async_trait]
 impl crate::Environment for DeterministicRuntimeHandle {
     type TcpStream = network::SocketHalf;
-    type TcpListener = network::Listener;
+    type TcpListener = network::Listener<SocketHalf>;
     fn spawn<F>(&self, future: F)
     where
         F: Future<Output = ()> + Send + 'static,
@@ -58,7 +58,7 @@ impl crate::Environment for DeterministicRuntimeHandle {
     where
         A: Into<net::SocketAddr> + Send + Sync,
     {
-        self.network.bind(addr.into().port()).await
+        self.network.bind(addr.into()).await
     }
     async fn connect<A>(&self, addr: A) -> io::Result<Self::TcpStream>
     where
@@ -97,7 +97,7 @@ impl DeterministicRuntime {
             fault::FaultInjector::new(seed, timer_handle.clone(), time.clone_now());
         let fault_injector_handle = fault_injector.handle();
         let network = network::Network::new_with_park(timer);
-        let network_handle = network.handle(net::Ipv4Addr::LOCALHOST.into()).unwrap();
+        let network_handle = network.handle();
         let executor = tokio_executor::current_thread::CurrentThread::new_with_park(network);
         let handle = DeterministicRuntimeHandle {
             reactor: reactor_handle.clone(),

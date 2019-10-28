@@ -2,6 +2,8 @@ use bytes::{Buf, Bytes, IntoBuf};
 use futures::{channel::mpsc, Future, Poll, Sink, SinkExt, Stream};
 use std::{io, net, pin::Pin, task::Context};
 use tokio::io::{AsyncRead, AsyncWrite};
+mod fault;
+pub use fault::{Fault as SocketFault, FaultyTcpStream};
 
 /// Returns a client/server socket pair, along with a SocketHandle which can be used to close
 /// either side of the socket halfs.
@@ -183,16 +185,20 @@ mod tests {
 
             for msg_num in 0..5usize {
                 let send_result = transport.send(String::from("ping")).await;
-                if msg_num < 2 {
-                    // since the server closes at 3 requests, 2 or less should be fine
-                    assert!(send_result.is_ok(), "expected sends to succeed because the server is not closed");
-                    let receive_result = transport.next().await;
-                    assert_eq!(receive_result.unwrap().unwrap(), String::from("pong"), "expected received to succeed");
-                } else if msg_num == 2 {
-                    assert!(send_result.is_ok(), "expected send to succeed");
-                    assert!(transport.next().await.unwrap().is_err(), "msg num 2 should cause the server to close, resulting in an err returned by the receive")
-                } else {
-                    assert!(send_result.is_err(), "now that the server is closed, sends should always fail");
+                match msg_num {
+                    num if num < 2 => {
+                        // since the server closes at 3 requests, 2 or less should be fine
+                        assert!(send_result.is_ok(), "expected sends to succeed because the server is not closed");
+                        let receive_result = transport.next().await;
+                        assert_eq!(receive_result.unwrap().unwrap(), String::from("pong"), "expected received to succeed");
+                    }
+                    num if num == 2 => {
+                        assert!(send_result.is_ok(), "expected send to succeed");
+                        assert!(transport.next().await.unwrap().is_err(), "msg num 2 should cause the server to close, resulting in an err returned by the receive")
+                    }
+                    _ => {
+                        assert!(send_result.is_err(), "now that the server is closed, sends should always fail");
+                    }
                 }
             }
             server_status.await.unwrap();

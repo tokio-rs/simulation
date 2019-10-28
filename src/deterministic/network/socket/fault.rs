@@ -8,16 +8,8 @@ use std::{io, net, pin::Pin, task::Context};
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::timer::Delay;
 
-pub enum NetworkFault {
-    /// Bring down all connections, then bring them back up in reverse order.
-    Swizzle,
-    /// Introduce a one time disconnect between client and server
-    Disconnect(u16),
-    /// Partition the server port from the rest of the network
-    Partition(u16),
-}
-
-pub enum TcpStreamFault {
+#[derive(Debug, Clone)]
+pub enum Fault {
     Delay(time::Duration),
     Disconnect,
 }
@@ -27,7 +19,7 @@ pub struct FaultyTcpStream<T> {
     disconnected: bool,
     delay: Option<Delay>,
     inner: T,
-    faults: Pin<Box<dyn Stream<Item = TcpStreamFault>>>,
+    faults: Pin<Box<dyn Stream<Item = Fault> + Send + 'static>>,
 }
 
 impl<T> FaultyTcpStream<T> {
@@ -35,7 +27,7 @@ impl<T> FaultyTcpStream<T> {
     /// first attempt to inject a fault supplied by fault_stream.
     pub fn wrap(
         handle: DeterministicRuntimeHandle,
-        fault_stream: Pin<Box<dyn Stream<Item = TcpStreamFault>>>,
+        fault_stream: Pin<Box<dyn Stream<Item = Fault> + Send + 'static>>,
         inner: T,
     ) -> FaultyTcpStream<T> {
         FaultyTcpStream {
@@ -61,11 +53,11 @@ impl<T> FaultyTcpStream<T> {
             }
             // check if there are any new faults to inject
             match self.faults.poll_next_unpin(cx) {
-                Poll::Ready(Some(TcpStreamFault::Delay(duration))) => {
+                Poll::Ready(Some(Fault::Delay(duration))) => {
                     let new_delay = self.handle.delay_from(duration);
                     self.delay.replace(new_delay);
                 }
-                Poll::Ready(Some(TcpStreamFault::Disconnect)) => {
+                Poll::Ready(Some(Fault::Disconnect)) => {
                     self.disconnected = true;
                 }
                 _ => return Poll::Ready(Ok(())),
@@ -153,8 +145,8 @@ mod tests {
             let client_addr = "127.0.0.1:35255".parse().unwrap();
             let (client_conn, server_conn) = network::new_socket_pair(client_addr, server_addr);
             let fault_stream = Box::pin(stream::iter(vec![
-                TcpStreamFault::Delay(time::Duration::from_secs(10)),
-                TcpStreamFault::Disconnect,
+                Fault::Delay(time::Duration::from_secs(10)),
+                Fault::Disconnect,
             ]));
             let client_conn = FaultyTcpStream::wrap(handle.clone(), fault_stream, client_conn);
 
@@ -190,7 +182,7 @@ mod tests {
             let client_addr = "127.0.0.1:35255".parse().unwrap();
             let (client_conn, server_conn) = network::new_socket_pair(client_addr, server_addr);
 
-            let (fault_tx, fault_rx) = mpsc::channel(1);
+            let (_fault_tx, fault_rx) = mpsc::channel(1);
             let client_conn =
                 FaultyTcpStream::wrap(handle.clone(), Box::pin(fault_rx), client_conn);
             // spawn a server future which returns a message
@@ -223,7 +215,7 @@ mod tests {
             tokio_test::assert_pending!(futures::poll!(transport.next()));
             // spawn a future to inject a disconnect fault.
             handle.spawn(async move {
-                fault_tx.send(TcpStreamFault::Disconnect).await.unwrap();
+                fault_tx.send(Fault::Disconnect).await.unwrap();
             });
             let result = transport.next().await.unwrap();
             assert!(

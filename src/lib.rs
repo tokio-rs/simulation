@@ -164,7 +164,7 @@ pub trait Environment: Unpin + Sized + Clone + Send + 'static {
         A: Into<net::SocketAddr> + Send + Sync;
 }
 
-pub trait TcpStream: AsyncRead + AsyncWrite + Unpin {
+pub trait TcpStream: AsyncRead + AsyncWrite + Unpin + Send + 'static {
     fn local_addr(&self) -> io::Result<net::SocketAddr>;
     fn peer_addr(&self) -> io::Result<net::SocketAddr>;
 }
