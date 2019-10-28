@@ -1,20 +1,19 @@
 use futures::Future;
 use hyper::service::{make_service_fn, service_fn};
 use hyper::{server::accept::Accept, Body, Error, Response};
-use simulation::{
-    deterministic::DeterministicRuntime, singlethread::SingleThreadedRuntime, Environment,
-};
+use simulation::{deterministic::DeterministicRuntime, Environment};
 use std::{io, net, pin::Pin, task::Context};
 
-use futures::{Poll, StreamExt};
+use futures::Poll;
 #[derive(Clone)]
 struct HyperExecutor<T> {
     inner: T,
 }
 
 impl<T, F> tokio_executor::TypedExecutor<F> for HyperExecutor<T>
-where F: Future<Output = ()> + Send + 'static,
-    T: simulation::Environment
+where
+    F: Future<Output = ()> + Send + 'static,
+    T: simulation::Environment,
 {
     fn spawn(&mut self, future: F) -> Result<(), tokio_executor::SpawnError> {
         <T as Environment>::spawn(&self.inner, Box::pin(future));
@@ -43,8 +42,8 @@ where
         futures::pin_mut!(accept);
 
         match futures::ready!(accept.poll(cx)) {
-            Ok((sock, _)) => return Poll::Ready(Some(Ok(sock))),
-            Err(e) => return Poll::Ready(Some(Err(e))),
+            Ok((sock, _)) => Poll::Ready(Some(Ok(sock))),
+            Err(e) => Poll::Ready(Some(Err(e))),
         }
     }
 }
@@ -61,9 +60,9 @@ fn foo() {
             async move {
                 Ok::<_, Error>(service_fn(move |_| {
                     async move {
-                        Ok::<_, Error>(Response::new(Body::from(format!(
-                            "Hello Deterministic world!\n"
-                        ))))
+                        Ok::<_, Error>(Response::new(Body::from(
+                            "Hello Deterministic world!\n".to_string(),
+                        )))
                     }
                 }))
             }
@@ -73,7 +72,8 @@ fn foo() {
         let executor = HyperExecutor {
             inner: handle.clone(),
         };
-        hyper::server::Builder::new(accept, http)
+
+        let _server_future = hyper::server::Builder::new(accept, http)
             .executor(executor)
             .serve(make_service);
     });

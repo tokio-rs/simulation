@@ -167,12 +167,11 @@ pub trait Environment: Unpin + Sized + Clone + Send + 'static {
 pub trait TcpStream: AsyncRead + AsyncWrite + Unpin {
     fn local_addr(&self) -> io::Result<net::SocketAddr>;
     fn peer_addr(&self) -> io::Result<net::SocketAddr>;
-    fn shutdown(&self) -> io::Result<()>;
 }
 
 #[async_trait]
 pub trait TcpListener {
-    type Stream: TcpStream + Send;
+    type Stream: TcpStream + Send + 'static;
     async fn accept(&mut self) -> Result<(Self::Stream, net::SocketAddr), io::Error>;
     fn local_addr(&self) -> Result<net::SocketAddr, io::Error>;
     fn ttl(&self) -> io::Result<u32>;

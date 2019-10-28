@@ -16,7 +16,7 @@ mod fault;
 pub use fault::{FaultInjector, FaultInjectorHandle};
 mod network;
 mod time;
-pub use network::{ClientConnection, Listener, MemoryStream, ServerConnection};
+pub use network::{Listener, SocketHalf};
 pub(crate) use time::Time;
 
 #[derive(Debug, Clone)]
@@ -37,7 +37,7 @@ impl DeterministicRuntimeHandle {
 
 #[async_trait]
 impl crate::Environment for DeterministicRuntimeHandle {
-    type TcpStream = network::ClientConnection;
+    type TcpStream = network::SocketHalf;
     type TcpListener = network::Listener;
     fn spawn<F>(&self, future: F)
     where
@@ -58,7 +58,7 @@ impl crate::Environment for DeterministicRuntimeHandle {
     where
         A: Into<net::SocketAddr> + Send + Sync,
     {
-        self.network.bind(addr.into())
+        self.network.bind(addr.into().port()).await
     }
     async fn connect<A>(&self, addr: A) -> io::Result<Self::TcpStream>
     where
@@ -96,8 +96,8 @@ impl DeterministicRuntime {
         let fault_injector =
             fault::FaultInjector::new(seed, timer_handle.clone(), time.clone_now());
         let fault_injector_handle = fault_injector.handle();
-        let network = network::Network::new_with_park(timer, fault_injector_handle.clone());
-        let network_handle = network.handle();
+        let network = network::Network::new_with_park(timer);
+        let network_handle = network.handle(net::Ipv4Addr::LOCALHOST.into()).unwrap();
         let executor = tokio_executor::current_thread::CurrentThread::new_with_park(network);
         let handle = DeterministicRuntimeHandle {
             reactor: reactor_handle.clone(),
@@ -167,7 +167,7 @@ mod tests {
     use crate::Environment;
 
     #[test]
-    /// Test that delays accurately advance the clock.    
+    /// Test that delays accurately advance the clock.
     fn delays() {
         let mut runtime = DeterministicRuntime::new().unwrap();
         let handle = runtime.handle();

@@ -51,7 +51,7 @@ where
     }
 }
 fn main() {
-    for seed in 0..10000000 {
+    for seed in 0..10_000_000 {
         let mut runtime =
             simulation::deterministic::DeterministicRuntime::new_with_seed(seed).unwrap();
         let handle = runtime.handle();

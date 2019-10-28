@@ -9,9 +9,6 @@ impl crate::TcpStream for TcpStream {
     fn peer_addr(&self) -> Result<net::SocketAddr, io::Error> {
         self.peer_addr()
     }
-    fn shutdown(&self) -> Result<(), io::Error> {
-        TcpStream::shutdown(self, net::Shutdown::Both)
-    }
 }
 
 #[async_trait]
