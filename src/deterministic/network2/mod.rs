@@ -4,8 +4,8 @@
 //! be accepted or rejected depending on the current fault state of the network.
 //!
 //! The network can inject partitions between machines.
-use futures::{channel::mpsc, Future, SinkExt, task::Waker};
-use std::{cmp, collections::{self, hash_map::Entry}, hash, io, net, sync};
+
+use std::{io, net, sync};
 mod listen;
 mod socket;
 mod inner;
@@ -67,10 +67,9 @@ impl NetworkHandle {
 mod tests {
     use super::*;
     use crate::{
-        deterministic::{DeterministicRuntime, DeterministicRuntimeHandle},
-        Environment, TcpListener, TcpStream,
+        Environment, TcpListener,
     };
-    use futures::{FutureExt, StreamExt};
+    use futures::{StreamExt, SinkExt};
     use std::net;
     use tokio::codec::{Framed, LinesCodec};
 
@@ -105,7 +104,7 @@ mod tests {
     /// Once the message has passed through 1000 servers, the test is finished.
     fn test_message_ring() {
         let mut runtime = crate::deterministic::DeterministicRuntime::new().unwrap();
-        let mut handle = runtime.handle();
+        let handle = runtime.handle();
         let network = Network::new(handle.clone());
         runtime.block_on(async {
             for oct in 0..100 {
@@ -144,8 +143,8 @@ mod tests {
     #[test]
     fn test_scoped_registration() {
         let mut runtime = crate::deterministic::DeterministicRuntime::new().unwrap();
-        let mut handle = runtime.handle();
-        let network = Network::new(handle.clone());
+        let handle = runtime.handle();
+        let network = Network::new(handle);
         runtime.block_on(async {
             // create scoped network handle
             let network1 = network.scoped(net::Ipv4Addr::new(10, 0, 0, 1));

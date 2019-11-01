@@ -1,5 +1,5 @@
-use futures::{channel::mpsc, Future, SinkExt, task::Waker};
-use std::{cmp, collections::{self, hash_map::Entry}, hash, io, net, sync};
+use futures::{channel::mpsc, Future, SinkExt};
+use std::{cmp, collections::{self, hash_map::Entry}, hash, io, net};
 use super::{ListenerState, Listener, socket, FaultyTcpStream, SocketHalf};
 
 #[derive(Debug)]
