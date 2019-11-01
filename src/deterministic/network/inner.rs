@@ -13,9 +13,6 @@ pub(crate) struct Inner<T> {
     /// to any server bound to this `Network`.
     listeners: collections::HashMap<num::NonZeroU16, mpsc::Sender<T>>,
 
-    /// Set of machines which have been connected, or have an outstanding network handle.
-    connected: collections::HashSet<std::net::IpAddr>,
-
     /// Next available port to assign
     next_port: u16,
 }
@@ -24,24 +21,12 @@ impl<T> Inner<T> {
     pub(crate) fn new() -> Self {
         Inner {
             listeners: collections::HashMap::new(),
-            connected: collections::HashSet::new(),
             next_port: 0,
         }
     }
 }
 
 impl<T> Inner<T> {
-    pub(crate) fn register_connected(&mut self, addr: std::net::IpAddr) -> Result<(), io::Error> {
-        if self.connected.contains(&addr) {
-            Err(io::Error::new(
-                io::ErrorKind::Other,
-                format!("addr {} is already registered", addr),
-            ))
-        } else {
-            Ok(())
-        }
-    }
-
     /// Check if the provided port is in use or not. If `port` is 0, assign a new
     /// port.
     fn free_port(&mut self, port: u16) -> Result<num::NonZeroU16, io::Error> {

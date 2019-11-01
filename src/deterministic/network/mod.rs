@@ -10,7 +10,7 @@ mod socket;
 use async_trait::async_trait;
 pub use handle::NetworkHandle;
 use inner::Inner;
-pub use socket::{new_socket_pair, SocketHalf};
+pub use socket::{new_socket_pair, FaultyTcpStream, SocketHalf};
 
 #[derive(Debug)]
 /// Network for creating and managing a set of servers

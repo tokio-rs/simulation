@@ -15,6 +15,7 @@ use std::{
 mod fault;
 pub use fault::{FaultInjector, FaultInjectorHandle};
 mod network;
+mod network2;
 mod time;
 pub use network::{Listener, SocketHalf};
 pub(crate) use time::Time;
