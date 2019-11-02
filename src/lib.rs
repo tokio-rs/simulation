@@ -137,6 +137,18 @@ pub enum Error {
 }
 
 #[async_trait]
+pub trait Network {
+    type TcpStream: TcpStream + Send + 'static + Unpin;
+    type TcpListener: TcpListener + Send + 'static + Unpin;
+    async fn bind<A>(&self, addr: A) -> io::Result<Self::TcpListener>
+    where
+        A: Into<net::SocketAddr> + Send + Sync;
+    async fn connect<A>(&self, addr: A) -> io::Result<Self::TcpStream>
+    where
+        A: Into<net::SocketAddr> + Send + Sync;
+}
+
+#[async_trait]
 pub trait Environment: Unpin + Sized + Clone + Send + 'static {
     type TcpStream: TcpStream + Send + 'static + Unpin;
     type TcpListener: TcpListener + Send + 'static + Unpin;

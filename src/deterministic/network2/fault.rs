@@ -1,0 +1,4 @@
+enum Method {
+    SwizzleClog,
+    RandomDisconnect,
+}

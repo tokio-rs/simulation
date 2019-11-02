@@ -9,6 +9,7 @@ use std::{io, net, sync};
 mod listen;
 mod socket;
 mod inner;
+mod fault;
 pub(crate) use inner::Inner;
 pub use listen::Listener;
 use listen::ListenerState;

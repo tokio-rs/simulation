@@ -138,6 +138,7 @@ struct Connection {
     client_fault_handle: socket::FaultyTcpStreamHandle,
     server_fault_handle: socket::FaultyTcpStreamHandle,
 }
+
 impl cmp::PartialEq for Connection {
     fn eq(&self, other: &Connection) -> bool {
         self.source.eq(&other.source) && self.dest.eq(&other.dest)
