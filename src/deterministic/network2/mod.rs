@@ -15,21 +15,22 @@ pub use listen::Listener;
 use listen::ListenerState;
 use socket::{FaultyTcpStream, SocketHalf};
 
-pub struct Network {
+pub type Socket = FaultyTcpStream<SocketHalf>;
+pub struct DeterministicNetwork {
     inner: sync::Arc<sync::Mutex<Inner>>,
 }
 
-impl Network {
-    pub(crate) fn new(handle: crate::deterministic::DeterministicRuntimeHandle) -> Network {
+impl DeterministicNetwork {
+    pub(crate) fn new(handle: crate::deterministic::DeterministicRuntimeHandle) -> DeterministicNetwork {
         let inner = Inner::new(handle);
         let inner = sync::Arc::new(sync::Mutex::new(inner));
-        Network { inner }
+        DeterministicNetwork { inner }
     }
-    pub fn scoped<T>(&self, local_addr: T) -> NetworkHandle
+    pub fn scoped<T>(&self, local_addr: T) -> DeterministicNetworkHandle
     where
         T: Into<net::IpAddr>,
     {
-        NetworkHandle::new(local_addr.into(), sync::Arc::clone(&self.inner))
+        DeterministicNetworkHandle::new(local_addr.into(), sync::Arc::clone(&self.inner))
     }
 }
 
@@ -37,14 +38,14 @@ impl Network {
 /// Each NetworkHandle is scoped to a particular IP address, which is then used when
 /// injecting faults.
 #[derive(Debug, Clone)]
-pub struct NetworkHandle {
+pub struct DeterministicNetworkHandle {
     local_addr: net::IpAddr,
     inner: sync::Arc<sync::Mutex<Inner>>,
 }
 
-impl NetworkHandle {
+impl DeterministicNetworkHandle {
     fn new(local_addr: net::IpAddr, inner: sync::Arc<sync::Mutex<Inner>>) -> Self {
-        NetworkHandle { local_addr, inner }
+        DeterministicNetworkHandle { local_addr, inner }
     }
 
     pub async fn bind(&self, mut bind_addr: net::SocketAddr) -> Result<Listener, io::Error> {
@@ -76,7 +77,7 @@ mod tests {
 
     /// Starts a server which will forward messages to the next server in the ring.
     async fn serve_message_ring(
-        network: NetworkHandle,
+        network: DeterministicNetworkHandle,
         next_server: net::SocketAddr,
     ) -> Result<(), io::Error> {
         let bind_addr = "127.0.0.1:9092".parse().unwrap();
@@ -106,7 +107,7 @@ mod tests {
     fn test_message_ring() {
         let mut runtime = crate::deterministic::DeterministicRuntime::new().unwrap();
         let handle = runtime.handle();
-        let network = Network::new(handle.clone());
+        let network = DeterministicNetwork::new(handle.clone());
         runtime.block_on(async {
             for oct in 0..100 {
                 let scoped = network.scoped(net::Ipv4Addr::new(10, 0, 0, oct));
@@ -145,7 +146,7 @@ mod tests {
     fn test_scoped_registration() {
         let mut runtime = crate::deterministic::DeterministicRuntime::new().unwrap();
         let handle = runtime.handle();
-        let network = Network::new(handle);
+        let network = DeterministicNetwork::new(handle);
         runtime.block_on(async {
             // create scoped network handle
             let network1 = network.scoped(net::Ipv4Addr::new(10, 0, 0, 1));

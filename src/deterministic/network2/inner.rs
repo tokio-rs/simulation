@@ -1,6 +1,7 @@
 use futures::{channel::mpsc, Future, SinkExt};
 use std::{cmp, collections::{self, hash_map::Entry}, hash, io, net};
 use super::{ListenerState, Listener, socket, FaultyTcpStream, SocketHalf};
+use super::fault::Connection;
 
 #[derive(Debug)]
 pub(crate) struct Inner {
@@ -28,12 +29,12 @@ impl Inner {
             socket::FaultyTcpStream::wrap(self.handle.clone(), client);
         let (server, server_fault_handle) =
             socket::FaultyTcpStream::wrap(self.handle.clone(), server);
-        let connection = Connection {
+        let connection = Connection::new(
             source,
             dest,
             client_fault_handle,
             server_fault_handle,
-        };
+        );
         if self.connections.contains(&connection) {
             return Err(io::ErrorKind::AddrInUse.into());
         }
@@ -46,8 +47,8 @@ impl Inner {
         let occupied: collections::HashSet<u16> = self
             .connections
             .iter()
-            .filter(|v| v.source.ip() == addr)
-            .map(|v| v.source.port())
+            .filter(|v| v.source().ip() == addr)
+            .map(|v| v.source().port())
             .collect();
         loop {
             if !occupied.contains(&start) {
@@ -61,8 +62,8 @@ impl Inner {
     fn gc_dropped(&mut self) {
         let mut connections = collections::HashSet::new();
         for connection in self.connections.iter() {
-            if !connection.client_fault_handle.is_dropped()
-                || !connection.server_fault_handle.is_dropped()
+            if !connection.is_dropped()
+
             {
                 connections.insert(connection.clone());
             }
@@ -129,27 +130,5 @@ impl Inner {
                     Ok(listener)
                 }
         }
-    }
-}
-#[derive(Debug, Clone)]
-struct Connection {
-    source: net::SocketAddr,
-    dest: net::SocketAddr,
-    client_fault_handle: socket::FaultyTcpStreamHandle,
-    server_fault_handle: socket::FaultyTcpStreamHandle,
-}
-
-impl cmp::PartialEq for Connection {
-    fn eq(&self, other: &Connection) -> bool {
-        self.source.eq(&other.source) && self.dest.eq(&other.dest)
-    }
-}
-
-impl cmp::Eq for Connection {}
-
-impl hash::Hash for Connection {
-    fn hash<H: hash::Hasher>(&self, state: &mut H) {
-        self.source.hash(state);
-        self.dest.hash(state);
     }
 }

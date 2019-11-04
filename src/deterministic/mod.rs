@@ -3,7 +3,13 @@
 //! The goal of this crate is to provide FoundationDB style simulation
 //! testing for all.
 //!
-
+//! There are 3 layers on which the `DeterministicRuntime` is built.
+//!
+//! - `DeterministicRandom` allows for accessing a deterministic source of randomness.
+//! - `DeterministicScheduling` allows for spawning and scheduling tasks deterministicially,
+//!    and provides a deterministic time source.
+//! - `DeterministicNetwork` provides a process wide networking in memory networking implementation.
+//!
 use crate::Error;
 use async_trait::async_trait;
 use futures::Future;
@@ -17,22 +23,23 @@ pub use fault::{FaultInjector, FaultInjectorHandle};
 mod network;
 mod network2;
 mod time;
+mod rand;
 pub use network::{Listener, SocketHalf};
-pub(crate) use time::Time;
+pub(crate) use time::DeterministicTime;
 
 #[derive(Debug, Clone)]
 pub struct DeterministicRuntimeHandle {
-    reactor: tokio_net::driver::Handle,
-    time: Time,
-    timer: tokio_timer::timer::Handle,
+    reactor_handle: tokio_net::driver::Handle,
+    time_handle: time::DeterministicTimeHandle,
+    timer_handle: tokio_timer::timer::Handle,
     fault_injector: FaultInjectorHandle,
-    network: network::NetworkHandle,
-    executor: tokio_executor::current_thread::Handle,
+    network_handle: network::NetworkHandle,
+    executor_handle: tokio_executor::current_thread::Handle,
 }
 
 impl DeterministicRuntimeHandle {
     pub fn now(&self) -> Instant {
-        self.time.now()
+        self.time_handle.now()
     }
 }
 
@@ -44,33 +51,33 @@ impl crate::Environment for DeterministicRuntimeHandle {
     where
         F: Future<Output = ()> + Send + 'static,
     {
-        self.executor.spawn(future).expect("failed to spawn");
+        self.executor_handle.spawn(future).expect("failed to spawn");
     }
     fn now(&self) -> Instant {
-        self.time.now()
+        self.time_handle.now()
     }
     fn delay(&self, deadline: Instant) -> tokio_timer::Delay {
-        self.timer.delay(deadline)
+        self.timer_handle.delay(deadline)
     }
     fn timeout<T>(&self, value: T, timeout: Duration) -> tokio_timer::Timeout<T> {
-        self.timer.timeout(value, timeout)
+        self.timer_handle.timeout(value, timeout)
     }
     async fn bind<A>(&self, addr: A) -> io::Result<Self::TcpListener>
     where
         A: Into<net::SocketAddr> + Send + Sync,
     {
-        self.network.bind(addr.into()).await
+        self.network_handle.bind(addr.into()).await
     }
     async fn connect<A>(&self, addr: A) -> io::Result<Self::TcpStream>
     where
         A: Into<net::SocketAddr> + Send + Sync,
     {
-        self.network.connect(addr.into()).await
+        self.network_handle.connect(addr.into()).await
     }
 }
 
 type Executor = tokio_executor::current_thread::CurrentThread<
-    network::Network<tokio_timer::timer::Timer<time::Park<tokio_net::driver::Reactor>, time::Now>>,
+    network::Network<tokio_timer::timer::Timer<time::DeterministicTime<tokio_net::driver::Reactor>, time::Now>>,
 >;
 
 pub struct DeterministicRuntime {
@@ -78,7 +85,6 @@ pub struct DeterministicRuntime {
     handle: DeterministicRuntimeHandle,
     reactor_handle: tokio_net::driver::Handle,
     timer_handle: tokio_timer::timer::Handle,
-    clock: tokio_timer::clock::Clock,
 }
 
 impl DeterministicRuntime {
@@ -89,31 +95,29 @@ impl DeterministicRuntime {
         let reactor =
             tokio_net::driver::Reactor::new().map_err(|source| Error::RuntimeBuild { source })?;
         let reactor_handle = reactor.handle();
-        let time = Time::new();
-        let reactor = time.wrap_park(reactor);
-        let timer = tokio_timer::Timer::new_with_now(reactor, time.clone_now());
+        let time = DeterministicTime::new_with_park(reactor);
+        let time_handle = time.handle();
+        let timer = tokio_timer::Timer::new_with_now(time, time_handle.clone_now());
         let timer_handle = timer.handle();
-        let clock = tokio_timer::clock::Clock::new_with_now(time.clone_now());
         let fault_injector =
-            fault::FaultInjector::new(seed, timer_handle.clone(), time.clone_now());
+            fault::FaultInjector::new(seed, timer_handle.clone(), time_handle.clone_now());
         let fault_injector_handle = fault_injector.handle();
         let network = network::Network::new_with_park(timer);
         let network_handle = network.handle();
         let executor = tokio_executor::current_thread::CurrentThread::new_with_park(network);
         let handle = DeterministicRuntimeHandle {
-            reactor: reactor_handle.clone(),
-            time,
-            timer: timer_handle.clone(),
+            reactor_handle: reactor_handle.clone(),
+            time_handle: time_handle,
+            timer_handle: timer_handle.clone(),
             fault_injector: fault_injector_handle,
-            network: network_handle,
-            executor: executor.handle(),
+            network_handle: network_handle,
+            executor_handle: executor.handle(),
         };
         Ok(DeterministicRuntime {
             executor,
             handle,
             reactor_handle,
             timer_handle,
-            clock,
         })
     }
 
@@ -147,12 +151,12 @@ impl DeterministicRuntime {
     {
         let DeterministicRuntime {
             ref reactor_handle,
-            ref mut clock,
             ref mut executor,
             ref timer_handle,
+            ref handle,
             ..
         } = *self;
-
+        let clock = tokio_timer::clock::Clock::new_with_now(handle.time_handle.clone_now());
         let _reactor = tokio_net::driver::set_default(&reactor_handle);
         let _guard = tokio_timer::timer::set_default(timer_handle);
         tokio_timer::clock::with_default(&clock, || {
