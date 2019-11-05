@@ -80,7 +80,7 @@ pub struct DeterministicRuntime {
     executor: Executor,
     time_handle: DeterministicTimeHandle,
     reactor_handle: tokio_net::driver::Handle,
-    network_handle: network::DeterministicNetworkHandle
+    network: network::DeterministicNetwork
 }
 
 impl DeterministicRuntime {
@@ -94,14 +94,12 @@ impl DeterministicRuntime {
         let time = DeterministicTime::new_with_park(reactor);
         let time_handle = time.handle();
         let network = network::DeterministicNetwork::new(time_handle.clone());
-        // TODO: Allow scoping
-        let network_handle = network.scoped(std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST));
         let executor = tokio_executor::current_thread::CurrentThread::new_with_park(time);
         Ok(DeterministicRuntime {
             executor,
             time_handle,
             reactor_handle,
-            network_handle,
+            network,
         })
     }
 
@@ -109,7 +107,7 @@ impl DeterministicRuntime {
         DeterministicRuntimeHandle {
             reactor_handle: self.reactor_handle.clone(),
             time_handle: self.time_handle.clone(),
-            network_handle: self.network_handle.clone(),
+            network_handle: self.network.scoped(net::IpAddr::V4(net::Ipv4Addr::LOCALHOST)),
             executor_handle: self.executor.handle(),
         }
     }
@@ -211,7 +209,6 @@ mod tests {
             assert_eq!(handle.now(), tokio_timer::clock::now(), "expected start time to be equal");
             let delay_duration = Duration::from_secs(1);
             let delay = tokio::timer::delay_for(delay_duration);
-            std::thread::sleep(Duration::from_secs(1));
             delay.await;
             assert_eq!(
                 start_time + delay_duration,
