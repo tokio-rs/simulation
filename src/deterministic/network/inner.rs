@@ -1,85 +1,134 @@
-//! Inner state for the in memory network. This is shared between
-//! network handles and allows for injecting faults at specific points in time.
-use super::Listener;
-use futures::channel::mpsc;
-use std::{collections, io, net, num};
+use futures::{channel::mpsc, Future, SinkExt};
+use std::{cmp, collections::{self, hash_map::Entry}, hash, io, net};
+use super::{ListenerState, Listener, socket, FaultyTcpStream, SocketHalf};
+use super::fault::Connection;
 
-/// Inner state for the in memory network implementation and handles which interact with it.
 #[derive(Debug)]
-pub(crate) struct Inner<T> {
-    /// Mapping from bound port number to `Sender`.
-    ///
-    /// `SocketHalf`'s placed onto the `Sender` channel will be delivered
-    /// to any server bound to this `Network`.
-    listeners: collections::HashMap<num::NonZeroU16, mpsc::Sender<T>>,
-
-    /// Next available port to assign
-    next_port: u16,
+pub(crate) struct Inner {
+    handle: crate::deterministic::DeterministicTimeHandle,
+    connections: collections::HashSet<Connection>,
+    endpoints: collections::HashMap<net::SocketAddr, ListenerState>,
 }
 
-impl<T> Inner<T> {
-    pub(crate) fn new() -> Self {
+
+impl Inner {
+    pub(crate) fn new(handle: crate::deterministic::DeterministicTimeHandle) -> Self {
         Inner {
-            listeners: collections::HashMap::new(),
-            next_port: 0,
+            handle,
+            connections: collections::HashSet::new(),
+            endpoints: collections::HashMap::new(),
         }
     }
-}
-
-impl<T> Inner<T> {
-    /// Check if the provided port is in use or not. If `port` is 0, assign a new
-    /// port.
-    fn free_port(&mut self, port: u16) -> Result<num::NonZeroU16, io::Error> {
-        if let Some(port) = num::NonZeroU16::new(port) {
-            if self.listeners.contains_key(&port) {
-                return Err(io::ErrorKind::AddrInUse.into());
+    fn register_new_connection_pair(
+        &mut self,
+        source: net::SocketAddr,
+        dest: net::SocketAddr,
+    ) -> Result<(FaultyTcpStream<SocketHalf>, FaultyTcpStream<SocketHalf>), io::Error> {
+        let (client, server) = socket::new_socket_pair(source, dest);
+        let (client, client_fault_handle) =
+            socket::FaultyTcpStream::wrap(self.handle.clone(), client);
+        let (server, server_fault_handle) =
+            socket::FaultyTcpStream::wrap(self.handle.clone(), server);
+        let connection = Connection::new(
+            source,
+            dest,
+            client_fault_handle,
+            server_fault_handle,
+        );
+        if self.connections.contains(&connection) {
+            return Err(io::ErrorKind::AddrInUse.into());
+        }
+        self.connections.insert(connection);
+        Ok((client, server))
+    }
+    // find an unused socket port for the provided ipaddr.
+    fn unused_socket_port(&self, addr: net::IpAddr) -> u16 {
+        let mut start = 65535;
+        let occupied: collections::HashSet<u16> = self
+            .connections
+            .iter()
+            .filter(|v| v.source().ip() == addr)
+            .map(|v| v.source().port())
+            .collect();
+        loop {
+            if !occupied.contains(&start) {
+                return start;
             }
-            Ok(port)
-        } else {
-            // pick next available port
-            loop {
-                if let Some(port) = num::NonZeroU16::new(self.next_port) {
-                    self.next_port += 1;
-                    if !self.listeners.contains_key(&port) {
-                        return Ok(port);
-                    }
-                } else {
-                    return Err(io::Error::new(
-                        io::ErrorKind::Other,
-                        String::from("could not find a port to bind to"),
-                    ));
+            if start == 0 {}
+            start -= 1;
+        }
+    }
+
+    fn gc_dropped(&mut self) {
+        let mut connections = collections::HashSet::new();
+        for connection in self.connections.iter() {
+            if !connection.is_dropped()
+
+            {
+                connections.insert(connection.clone());
+            }
+        }
+        self.connections = connections;
+    }
+
+    pub fn connect(
+        &mut self,
+        source: net::IpAddr,
+        dest: net::SocketAddr,
+    ) -> impl Future<Output = Result<socket::FaultyTcpStream<SocketHalf>, io::Error>> {
+        self.gc_dropped();
+        let free_socket_port = self.unused_socket_port(source);
+        let source_addr = net::SocketAddr::new(source, free_socket_port);
+        let registration = self.register_new_connection_pair(source_addr, dest);
+
+        let mut channel;
+        match self.endpoints.entry(dest) {
+            Entry::Vacant(v) => {
+                let (tx, rx) = mpsc::channel(1);
+                let state = ListenerState::Unbound {
+                    tx: tx.clone(), rx,
+                };
+                channel = tx;
+                v.insert(state);
+            },
+            Entry::Occupied(o) => {
+                match o.get() {
+                    ListenerState::Bound{tx} => channel = tx.clone(),
+                    ListenerState::Unbound{tx, ..} => channel = tx.clone()
                 }
+            },
+        }
+
+        async move {
+            let (client, server) = registration?;
+            match channel.send(server).await {
+                Ok(_) => Ok(client),
+                Err(_) => Err(io::ErrorKind::ConnectionRefused.into()),
             }
         }
     }
 
-    /// Returns a new listener bound to the provided addr. If a listener is already bound, returns an error.
-    /// To be assigned a listener with a random port, supply a addr with a port number of 0.
-    pub(crate) fn bind_listener(
-        &mut self,
-        mut addr: net::SocketAddr,
-    ) -> Result<Listener<T>, io::Error> {
-        let proposed_port = addr.port();
-        let real_port = self.free_port(proposed_port)?;
-        addr.set_port(real_port.into());
-        let (listener_tx, listener_rx) = mpsc::channel(1);
-        let listener = Listener::new(addr, listener_rx);
-        self.listeners.insert(real_port, listener_tx);
-        Ok(listener)
-    }
-
-    /// Returns a connection channel if one is bound to the provided addr. If there is no connection
-    /// channel bound, return an error.
-    pub(crate) fn connection_channel(
-        &mut self,
-        addr: net::SocketAddr,
-    ) -> Result<mpsc::Sender<T>, io::Error> {
-        let server_port = num::NonZeroU16::new(addr.port()).ok_or_else(|| {
-            io::Error::new(io::ErrorKind::InvalidInput, "server port cannot be zero")
-        })?;
-        let chan = self.listeners.get_mut(&server_port).ok_or_else(|| {
-            io::Error::new(io::ErrorKind::ConnectionRefused, "connection refused")
-        })?;
-        Ok(chan.clone())
+    pub fn listen(&mut self, bind_addr: net::SocketAddr) -> Result<Listener, io::Error> {
+        self.gc_dropped();
+        match self.endpoints.remove(&bind_addr) {
+            Some(listener_state) => {
+                if let ListenerState::Unbound { tx, rx } = listener_state {
+                    let listener = Listener::new(bind_addr, rx);
+                    let new_state = ListenerState::Bound { tx };
+                    self.endpoints.insert(bind_addr, new_state);
+                    Ok(listener)
+                } else {
+                    self.endpoints.insert(bind_addr, listener_state);
+                    Err(io::ErrorKind::AddrInUse.into())
+                }
+            },
+            _ => {
+                    let (tx, rx) = mpsc::channel(1);
+                    let state = ListenerState::Bound{tx};
+                    self.endpoints.insert(bind_addr, state);
+                    let listener = Listener::new(bind_addr, rx);
+                    Ok(listener)
+                }
+        }
     }
 }

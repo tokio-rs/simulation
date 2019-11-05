@@ -21,19 +21,16 @@ use std::{
 mod fault;
 pub use fault::{FaultInjector, FaultInjectorHandle};
 mod network;
-mod network2;
 mod time;
 mod rand;
-pub use network::{Listener, SocketHalf};
-pub(crate) use time::DeterministicTime;
+pub use network::{Listener, Socket};
+pub(crate) use time::{DeterministicTime, DeterministicTimeHandle};
 
 #[derive(Debug, Clone)]
 pub struct DeterministicRuntimeHandle {
     reactor_handle: tokio_net::driver::Handle,
     time_handle: time::DeterministicTimeHandle,
-    timer_handle: tokio_timer::timer::Handle,
-    fault_injector: FaultInjectorHandle,
-    network_handle: network::NetworkHandle,
+    network_handle: network::DeterministicNetworkHandle,
     executor_handle: tokio_executor::current_thread::Handle,
 }
 
@@ -41,12 +38,15 @@ impl DeterministicRuntimeHandle {
     pub fn now(&self) -> Instant {
         self.time_handle.now()
     }
+    pub fn time_handle(&self) -> time::DeterministicTimeHandle {
+        self.time_handle.clone()
+    }
 }
 
 #[async_trait]
 impl crate::Environment for DeterministicRuntimeHandle {
-    type TcpStream = network::SocketHalf;
-    type TcpListener = network::Listener<SocketHalf>;
+    type TcpStream = network::Socket;
+    type TcpListener = network::Listener;
     fn spawn<F>(&self, future: F)
     where
         F: Future<Output = ()> + Send + 'static,
@@ -57,10 +57,10 @@ impl crate::Environment for DeterministicRuntimeHandle {
         self.time_handle.now()
     }
     fn delay(&self, deadline: Instant) -> tokio_timer::Delay {
-        self.timer_handle.delay(deadline)
+        self.time_handle.delay(deadline)
     }
     fn timeout<T>(&self, value: T, timeout: Duration) -> tokio_timer::Timeout<T> {
-        self.timer_handle.timeout(value, timeout)
+        self.time_handle.timeout(value, timeout)
     }
     async fn bind<A>(&self, addr: A) -> io::Result<Self::TcpListener>
     where
@@ -75,16 +75,12 @@ impl crate::Environment for DeterministicRuntimeHandle {
         self.network_handle.connect(addr.into()).await
     }
 }
-
-type Executor = tokio_executor::current_thread::CurrentThread<
-    network::Network<tokio_timer::timer::Timer<time::DeterministicTime<tokio_net::driver::Reactor>, time::Now>>,
->;
-
+type Executor = tokio_executor::current_thread::CurrentThread<DeterministicTime<tokio_net::driver::Reactor>>;
 pub struct DeterministicRuntime {
     executor: Executor,
-    handle: DeterministicRuntimeHandle,
+    time_handle: DeterministicTimeHandle,
     reactor_handle: tokio_net::driver::Handle,
-    timer_handle: tokio_timer::timer::Handle,
+    network_handle: network::DeterministicNetworkHandle
 }
 
 impl DeterministicRuntime {
@@ -97,32 +93,25 @@ impl DeterministicRuntime {
         let reactor_handle = reactor.handle();
         let time = DeterministicTime::new_with_park(reactor);
         let time_handle = time.handle();
-        let timer = tokio_timer::Timer::new_with_now(time, time_handle.clone_now());
-        let timer_handle = timer.handle();
-        let fault_injector =
-            fault::FaultInjector::new(seed, timer_handle.clone(), time_handle.clone_now());
-        let fault_injector_handle = fault_injector.handle();
-        let network = network::Network::new_with_park(timer);
-        let network_handle = network.handle();
-        let executor = tokio_executor::current_thread::CurrentThread::new_with_park(network);
-        let handle = DeterministicRuntimeHandle {
-            reactor_handle: reactor_handle.clone(),
-            time_handle: time_handle,
-            timer_handle: timer_handle.clone(),
-            fault_injector: fault_injector_handle,
-            network_handle: network_handle,
-            executor_handle: executor.handle(),
-        };
+        let network = network::DeterministicNetwork::new(time_handle.clone());
+        // TODO: Allow scoping
+        let network_handle = network.scoped(std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST));
+        let executor = tokio_executor::current_thread::CurrentThread::new_with_park(time);
         Ok(DeterministicRuntime {
             executor,
-            handle,
+            time_handle,
             reactor_handle,
-            timer_handle,
+            network_handle,
         })
     }
 
     pub fn handle(&self) -> DeterministicRuntimeHandle {
-        self.handle.clone()
+        DeterministicRuntimeHandle {
+            reactor_handle: self.reactor_handle.clone(),
+            time_handle: self.time_handle.clone(),
+            network_handle: self.network_handle.clone(),
+            executor_handle: self.executor.handle(),
+        }
     }
 
     pub fn spawn<F>(&mut self, future: F) -> &mut Self
@@ -150,15 +139,15 @@ impl DeterministicRuntime {
         F: FnOnce(&mut Executor) -> R,
     {
         let DeterministicRuntime {
-            ref reactor_handle,
+            ref mut time_handle,
             ref mut executor,
-            ref timer_handle,
-            ref handle,
+            ref mut reactor_handle,
             ..
         } = *self;
-        let clock = tokio_timer::clock::Clock::new_with_now(handle.time_handle.clone_now());
+        let clock = tokio_timer::clock::Clock::new_with_now(time_handle.clone_now());
         let _reactor = tokio_net::driver::set_default(&reactor_handle);
-        let _guard = tokio_timer::timer::set_default(timer_handle);
+        let timer_handle = time_handle.clone_timer_handle();
+        let _guard = tokio_timer::timer::set_default(&timer_handle);
         tokio_timer::clock::with_default(&clock, || {
             let mut default_executor = tokio_executor::current_thread::TaskExecutor::current();
             tokio_executor::with_default(&mut default_executor, || f(executor))
@@ -219,13 +208,15 @@ mod tests {
         let handle = runtime.handle();
         runtime.block_on(async {
             let start_time = tokio_timer::clock::now();
-            assert_eq!(handle.now(), tokio_timer::clock::now());
-            let delay = tokio::timer::delay_for(Duration::from_secs(10));
+            assert_eq!(handle.now(), tokio_timer::clock::now(), "expected start time to be equal");
+            let delay_duration = Duration::from_secs(1);
+            let delay = tokio::timer::delay_for(delay_duration);
+            std::thread::sleep(Duration::from_secs(1));
             delay.await;
             assert_eq!(
-                start_time + Duration::from_secs(10),
-                tokio_timer::clock::now()
-            );
+                start_time + delay_duration,
+                tokio_timer::clock::now(),
+            "expected elapsed time to be equal");
         });
     }
 }

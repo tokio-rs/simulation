@@ -28,10 +28,11 @@ impl Inner {
 }
 
 /// A mock source of time, providing deterministic control of time.
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct DeterministicTime<P> {
-    park: P,
+    park: tokio_timer::Timer<DeterministicPark<P>, Now>,
     inner: sync::Arc<sync::Mutex<Inner>>,
+    timer_handle: tokio_timer::timer::Handle,
 }
 
 impl<P> DeterministicTime<P>
@@ -45,18 +46,30 @@ where
     pub fn new_with_park(park: P) -> Self {
         let inner = Inner::new();
         let inner = sync::Arc::new(sync::Mutex::new(inner));
-        Self { inner, park }
+        let now = Now::new(sync::Arc::clone(&inner));
+        let inner_park = DeterministicPark::new(park, sync::Arc::clone(&inner));
+        let timer = tokio_timer::Timer::new_with_now(inner_park, now);
+        let timer_handle = timer.handle();
+        Self {
+            inner,
+            park: timer,
+            timer_handle,
+        }
     }
 
     pub fn handle(&self) -> DeterministicTimeHandle {
         let inner = sync::Arc::clone(&self.inner);
-        DeterministicTimeHandle { inner }
+        DeterministicTimeHandle {
+            inner,
+            timer_handle: self.timer_handle.clone(),
+        }
     }
 }
 
 #[derive(Debug, Clone)]
 pub struct DeterministicTimeHandle {
     inner: sync::Arc<sync::Mutex<Inner>>,
+    timer_handle: tokio_timer::timer::Handle,
 }
 
 impl DeterministicTimeHandle {
@@ -81,9 +94,37 @@ impl DeterministicTimeHandle {
     pub(crate) fn clone_tokio_clock(&self) -> tokio_timer::clock::Clock {
         tokio_timer::clock::Clock::new_with_now(self.clone_now())
     }
+
+    pub fn delay(&self, deadline: time::Instant) -> tokio_timer::Delay {
+        self.timer_handle.delay(deadline)
+    }
+
+    pub fn delay_from(&self, duration: time::Duration) -> tokio_timer::Delay {
+        self.timer_handle.delay(self.now() + duration)
+    }
+
+    pub fn timeout<T>(&self, value: T, timeout: time::Duration) -> tokio_timer::Timeout<T> {
+        self.timer_handle.timeout(value, timeout)
+    }
+
+    pub fn clone_timer_handle(&self) -> tokio_timer::timer::Handle {
+        self.timer_handle.clone()
+    }
 }
 
-impl<P> tokio_executor::park::Park for DeterministicTime<P>
+#[derive(Debug)]
+struct DeterministicPark<P> {
+    park: P,
+    inner: sync::Arc<sync::Mutex<Inner>>,
+}
+
+impl<P> DeterministicPark<P> {
+    fn new(park: P, inner: sync::Arc<sync::Mutex<Inner>>) -> Self {
+        Self { park, inner }
+    }
+}
+
+impl<P> tokio_executor::park::Park for DeterministicPark<P>
 where
     P: tokio_executor::park::Park,
 {
@@ -99,6 +140,23 @@ where
         let mut lock = self.inner.lock().unwrap();
         lock.advance(duration);
         self.park.park_timeout(time::Duration::from_millis(0))
+    }
+}
+
+impl<P> tokio_executor::park::Park for DeterministicTime<P>
+where
+    P: tokio_executor::park::Park,
+{
+    type Unpark = P::Unpark;
+    type Error = P::Error;
+    fn unpark(&self) -> Self::Unpark {
+        self.park.unpark()
+    }
+    fn park(&mut self) -> Result<(), Self::Error> {
+        self.park.park()
+    }
+    fn park_timeout(&mut self, duration: time::Duration) -> Result<(), Self::Error> {
+        self.park.park_timeout(duration)
     }
 }
 

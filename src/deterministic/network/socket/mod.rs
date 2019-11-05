@@ -2,8 +2,8 @@ use bytes::{Buf, Bytes, IntoBuf};
 use futures::{channel::mpsc, Future, Poll, Sink, SinkExt, Stream};
 use std::{io, net, pin::Pin, task::Context};
 use tokio::io::{AsyncRead, AsyncWrite};
-mod fault;
-pub use fault::{Fault as SocketFault, FaultyTcpStream};
+pub mod fault;
+pub use fault::{FaultyTcpStream, FaultyTcpStreamHandle};
 
 /// Returns a client/server socket pair, along with a SocketHandle which can be used to close
 /// either side of the socket halfs.
@@ -49,6 +49,9 @@ impl SocketHalf {
     }
     pub fn peer_addr(&self) -> net::SocketAddr {
         self.peer_addr
+    }
+    pub(crate) fn connected(&self) -> bool {
+        !self.tx.is_closed()
     }
 }
 
