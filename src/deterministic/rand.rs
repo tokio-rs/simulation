@@ -1,4 +1,4 @@
-use rand::{rngs, Rng};
+use rand::{rngs};
 use std::sync;
 
 #[derive(Debug)]
