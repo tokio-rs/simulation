@@ -1,21 +1,25 @@
+use super::fault::{CloggedConnection, Connection};
+use super::{socket, FaultyTcpStream, Listener, ListenerState, SocketHalf};
 use futures::{channel::mpsc, Future, SinkExt};
-use std::{collections::{self, hash_map::Entry}, io, net};
-use super::{ListenerState, Listener, socket, FaultyTcpStream, SocketHalf};
-use super::fault::Connection;
+use std::{
+    collections::{self, hash_map::Entry},
+    io, net,
+};
 
 #[derive(Debug)]
 pub(crate) struct Inner {
     handle: crate::deterministic::DeterministicTimeHandle,
-    connections: collections::HashSet<Connection>,
+    pub(crate) connections: Vec<Connection>,
+    clogged: collections::HashSet<CloggedConnection>,
     endpoints: collections::HashMap<net::SocketAddr, ListenerState>,
 }
-
 
 impl Inner {
     pub(crate) fn new(handle: crate::deterministic::DeterministicTimeHandle) -> Self {
         Inner {
             handle,
-            connections: collections::HashSet::new(),
+            connections: vec![],
+            clogged: collections::HashSet::new(),
             endpoints: collections::HashMap::new(),
         }
     }
@@ -24,21 +28,27 @@ impl Inner {
         source: net::SocketAddr,
         dest: net::SocketAddr,
     ) -> Result<(FaultyTcpStream<SocketHalf>, FaultyTcpStream<SocketHalf>), io::Error> {
+        if self
+            .connections
+            .iter()
+            .map(|c| c.source())
+            .collect::<Vec<_>>()
+            .contains(&source)
+        {
+            return Err(io::ErrorKind::AddrInUse.into());
+        }
+
         let (client, server) = socket::new_socket_pair(source, dest);
         let (client, client_fault_handle) =
             socket::FaultyTcpStream::wrap(self.handle.clone(), client);
         let (server, server_fault_handle) =
             socket::FaultyTcpStream::wrap(self.handle.clone(), server);
-        let connection = Connection::new(
-            source,
-            dest,
-            client_fault_handle,
-            server_fault_handle,
-        );
-        if self.connections.contains(&connection) {
-            return Err(io::ErrorKind::AddrInUse.into());
+        let mut connection =
+            Connection::new(source, dest, client_fault_handle, server_fault_handle);
+        if self.should_clog(source, dest) {
+            connection.clog();
         }
-        self.connections.insert(connection);
+        self.connections.push(connection);
         Ok((client, server))
     }
     // find an unused socket port for the provided ipaddr.
@@ -60,12 +70,10 @@ impl Inner {
     }
 
     fn gc_dropped(&mut self) {
-        let mut connections = collections::HashSet::new();
+        let mut connections = vec![];
         for connection in self.connections.iter() {
-            if !connection.is_dropped()
-
-            {
-                connections.insert(connection.clone());
+            if !connection.is_dropped() {
+                connections.push(connection.clone());
             }
         }
         self.connections = connections;
@@ -85,17 +93,13 @@ impl Inner {
         match self.endpoints.entry(dest) {
             Entry::Vacant(v) => {
                 let (tx, rx) = mpsc::channel(1);
-                let state = ListenerState::Unbound {
-                    tx: tx.clone(), rx,
-                };
+                let state = ListenerState::Unbound { tx: tx.clone(), rx };
                 channel = tx;
                 v.insert(state);
-            },
-            Entry::Occupied(o) => {
-                match o.get() {
-                    ListenerState::Bound{tx} => channel = tx.clone(),
-                    ListenerState::Unbound{tx, ..} => channel = tx.clone()
-                }
+            }
+            Entry::Occupied(o) => match o.get() {
+                ListenerState::Bound { tx } => channel = tx.clone(),
+                ListenerState::Unbound { tx, .. } => channel = tx.clone(),
             },
         }
 
@@ -121,14 +125,56 @@ impl Inner {
                     self.endpoints.insert(bind_addr, listener_state);
                     Err(io::ErrorKind::AddrInUse.into())
                 }
-            },
+            }
             _ => {
-                    let (tx, rx) = mpsc::channel(1);
-                    let state = ListenerState::Bound{tx};
-                    self.endpoints.insert(bind_addr, state);
-                    let listener = Listener::new(bind_addr, rx);
-                    Ok(listener)
-                }
+                let (tx, rx) = mpsc::channel(1);
+                let state = ListenerState::Bound { tx };
+                self.endpoints.insert(bind_addr, state);
+                let listener = Listener::new(bind_addr, rx);
+                Ok(listener)
+            }
+        }
+    }
+
+    /// Determines if a connection should be clogged based on the state of clogged connections.
+    fn should_clog(&self, source: net::SocketAddr, dest: net::SocketAddr) -> bool {
+        let source_ip = source.ip();
+        let dest_ip = dest.ip();
+        for connection in self.clogged.iter() {
+            if connection.source() == source_ip && connection.dest() == dest_ip {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /// Clog all new connections from one IP to another. If there are any existing connections, they
+    /// are also clogged.
+    fn clog_connection(&mut self, clog: CloggedConnection) {
+        let clog_source = clog.source();
+        let clog_dest = clog.dest();
+        self.clogged.insert(clog);
+        for connection in self.connections.iter_mut() {
+            let source_ip = connection.source().ip();
+            let dest_ip = connection.dest().ip();
+            if source_ip == clog_source && dest_ip == clog_dest {
+                connection.clog();
+            }
+        }
+    }
+
+    /// Unclog all new connection between two IP addresses. If there are any existing connections which
+    /// are clogged, they are unclogged.
+    fn unclog_connection(&mut self, unclog: CloggedConnection) {
+        let clog_source = unclog.source();
+        let clog_dest = unclog.dest();
+        self.clogged.remove(&unclog);
+        for connection in self.connections.iter_mut() {
+            let source_ip = connection.source().ip();
+            let dest_ip = connection.dest().ip();
+            if source_ip == clog_source && dest_ip == clog_dest {
+                connection.unclog();
+            }
         }
     }
 }

@@ -18,20 +18,21 @@ use std::{
     time::{Duration, Instant},
 };
 
-mod fault;
-pub use fault::{FaultInjector, FaultInjectorHandle};
 mod network;
+mod random;
 mod time;
-mod rand;
+pub(crate) use network::{DeterministicNetwork, DeterministicNetworkHandle};
 pub use network::{Listener, Socket};
+pub(crate) use random::{DeterministicRandom, DeterministicRandomHandle};
 pub(crate) use time::{DeterministicTime, DeterministicTimeHandle};
 
 #[derive(Debug, Clone)]
 pub struct DeterministicRuntimeHandle {
     reactor_handle: tokio_net::driver::Handle,
     time_handle: time::DeterministicTimeHandle,
-    network_handle: network::DeterministicNetworkHandle,
+    network_handle: DeterministicNetworkHandle,
     executor_handle: tokio_executor::current_thread::Handle,
+    random_handle: DeterministicRandomHandle,
 }
 
 impl DeterministicRuntimeHandle {
@@ -40,6 +41,9 @@ impl DeterministicRuntimeHandle {
     }
     pub fn time_handle(&self) -> time::DeterministicTimeHandle {
         self.time_handle.clone()
+    }
+    pub fn random_handle(&self) -> DeterministicRandomHandle {
+        self.random_handle.clone()
     }
 }
 
@@ -75,31 +79,37 @@ impl crate::Environment for DeterministicRuntimeHandle {
         self.network_handle.connect(addr.into()).await
     }
 }
-type Executor = tokio_executor::current_thread::CurrentThread<DeterministicTime<tokio_net::driver::Reactor>>;
+
+type Executor =
+    tokio_executor::current_thread::CurrentThread<DeterministicTime<tokio_net::driver::Reactor>>;
+
 pub struct DeterministicRuntime {
     executor: Executor,
     time_handle: DeterministicTimeHandle,
     reactor_handle: tokio_net::driver::Handle,
-    network: network::DeterministicNetwork
+    network: DeterministicNetwork,
+    random: DeterministicRandom,
 }
 
 impl DeterministicRuntime {
     pub fn new() -> Result<Self, Error> {
         DeterministicRuntime::new_with_seed(0)
     }
-    pub fn new_with_seed(_seed: u64) -> Result<Self, Error> {
+    pub fn new_with_seed(seed: u64) -> Result<Self, Error> {
         let reactor =
             tokio_net::driver::Reactor::new().map_err(|source| Error::RuntimeBuild { source })?;
         let reactor_handle = reactor.handle();
         let time = DeterministicTime::new_with_park(reactor);
         let time_handle = time.handle();
-        let network = network::DeterministicNetwork::new(time_handle.clone());
+        let network = DeterministicNetwork::new(time_handle.clone());
         let executor = tokio_executor::current_thread::CurrentThread::new_with_park(time);
+        let random = DeterministicRandom::new_with_seed(seed);
         Ok(DeterministicRuntime {
             executor,
             time_handle,
             reactor_handle,
             network,
+            random,
         })
     }
 
@@ -107,8 +117,11 @@ impl DeterministicRuntime {
         DeterministicRuntimeHandle {
             reactor_handle: self.reactor_handle.clone(),
             time_handle: self.time_handle.clone(),
-            network_handle: self.network.scoped(net::IpAddr::V4(net::Ipv4Addr::LOCALHOST)),
+            network_handle: self
+                .network
+                .scoped(net::IpAddr::V4(net::Ipv4Addr::LOCALHOST)),
             executor_handle: self.executor.handle(),
+            random_handle: self.random.handle(),
         }
     }
 
@@ -142,6 +155,7 @@ impl DeterministicRuntime {
             ref mut reactor_handle,
             ..
         } = *self;
+        // Setup mock clock globals
         let clock = tokio_timer::clock::Clock::new_with_now(time_handle.clone_now());
         let _reactor = tokio_net::driver::set_default(&reactor_handle);
         let timer_handle = time_handle.clone_timer_handle();
@@ -206,14 +220,19 @@ mod tests {
         let handle = runtime.handle();
         runtime.block_on(async {
             let start_time = tokio_timer::clock::now();
-            assert_eq!(handle.now(), tokio_timer::clock::now(), "expected start time to be equal");
+            assert_eq!(
+                handle.now(),
+                tokio_timer::clock::now(),
+                "expected start time to be equal"
+            );
             let delay_duration = Duration::from_secs(1);
             let delay = tokio::timer::delay_for(delay_duration);
             delay.await;
             assert_eq!(
                 start_time + delay_duration,
                 tokio_timer::clock::now(),
-            "expected elapsed time to be equal");
+                "expected elapsed time to be equal"
+            );
         });
     }
 }

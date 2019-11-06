@@ -6,10 +6,10 @@
 //! The network can inject partitions between machines.
 
 use std::{io, net, sync};
+pub(crate) mod fault;
+mod inner;
 mod listen;
 pub(crate) mod socket;
-mod inner;
-mod fault;
 pub(crate) use inner::Inner;
 pub use listen::Listener;
 use listen::ListenerState;
@@ -21,7 +21,9 @@ pub struct DeterministicNetwork {
 }
 
 impl DeterministicNetwork {
-    pub(crate) fn new(handle: crate::deterministic::DeterministicTimeHandle) -> DeterministicNetwork {
+    pub(crate) fn new(
+        handle: crate::deterministic::DeterministicTimeHandle,
+    ) -> DeterministicNetwork {
         let inner = Inner::new(handle);
         let inner = sync::Arc::new(sync::Mutex::new(inner));
         DeterministicNetwork { inner }
@@ -31,6 +33,10 @@ impl DeterministicNetwork {
         T: Into<net::IpAddr>,
     {
         DeterministicNetworkHandle::new(local_addr.into(), sync::Arc::clone(&self.inner))
+    }
+
+    pub(crate) fn clone_inner(&self) -> sync::Arc<sync::Mutex<Inner>> {
+        sync::Arc::clone(&self.inner)
     }
 }
 
@@ -54,7 +60,10 @@ impl DeterministicNetworkHandle {
         lock.listen(bind_addr)
     }
 
-    pub async fn connect(&self, dest: net::SocketAddr) -> Result<FaultyTcpStream<SocketHalf>, io::Error> {
+    pub async fn connect(
+        &self,
+        dest: net::SocketAddr,
+    ) -> Result<FaultyTcpStream<SocketHalf>, io::Error> {
         let connfut = {
             let mut lock = self.inner.lock().unwrap();
             let ret = lock.connect(self.local_addr, dest);
@@ -68,10 +77,8 @@ impl DeterministicNetworkHandle {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{
-        Environment, TcpListener,
-    };
-    use futures::{StreamExt, SinkExt};
+    use crate::{Environment, TcpListener};
+    use futures::{SinkExt, StreamExt};
     use std::net;
     use tokio::codec::{Framed, LinesCodec};
 
@@ -115,12 +122,13 @@ mod tests {
                     serve_message_ring(
                         scoped,
                         net::SocketAddr::new(net::Ipv4Addr::new(10, 0, 0, oct + 1).into(), 9092),
-                    ).await.unwrap();
+                    )
+                    .await
+                    .unwrap();
                 });
             }
             let start_addr = net::SocketAddr::new(net::Ipv4Addr::new(10, 0, 0, 0).into(), 9092);
             let end_addr = net::SocketAddr::new(net::Ipv4Addr::new(10, 0, 0, 100).into(), 9092);
-
 
             let scoped = network.scoped(end_addr.ip());
             handle.delay_from(std::time::Duration::from_secs(10));
@@ -131,10 +139,10 @@ mod tests {
             let mut listener = scoped.bind(end_addr).await.unwrap();
             while let Ok((new_conn, _)) = listener.accept().await {
                 let mut server_transport = Framed::new(new_conn, LinesCodec::new());
-                while let Some(Ok(message))  = server_transport.next().await {
+                while let Some(Ok(message)) = server_transport.next().await {
                     let decoded: usize = message.parse().unwrap();
                     if decoded > 1000 {
-                        return
+                        return;
                     }
                     client_transport.send(message).await.unwrap();
                 }

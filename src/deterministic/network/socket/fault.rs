@@ -1,5 +1,4 @@
-//! Facilities for injecting faults into [`TcpStream`]'s and the in memory
-//! network.
+//! Fault injection for AsyncRead/AsyncWrite types.
 
 use crate::TcpStream;
 use futures::{task::Waker, FutureExt, Poll};
@@ -38,6 +37,11 @@ impl FaultyTcpStreamHandle {
     }
     pub fn set_receive_latency(&self, duration: time::Duration) {
         self.inner.lock().unwrap().receive_latency = duration;
+    }
+
+    pub fn is_fully_clogged(&self) -> bool {
+        let lock = self.inner.lock().unwrap();
+        lock.send_clogged || lock.receive_clogged
     }
 
     pub fn clog_sends(&self) {
@@ -216,7 +220,6 @@ where
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -236,7 +239,8 @@ mod tests {
             let server_addr = "127.0.0.1:9092".parse().unwrap();
             let client_addr = "127.0.0.1:35255".parse().unwrap();
             let (client_conn, server_conn) = new_socket_pair(client_addr, server_addr);
-            let (client_conn, client_handle) = FaultyTcpStream::wrap(handle.time_handle(), client_conn);
+            let (client_conn, client_handle) =
+                FaultyTcpStream::wrap(handle.time_handle(), client_conn);
             client_handle.set_receive_latency(time::Duration::from_secs(10));
 
             // spawn a server future which returns a message
@@ -271,7 +275,8 @@ mod tests {
             let server_addr = "127.0.0.1:9092".parse().unwrap();
             let client_addr = "127.0.0.1:35255".parse().unwrap();
             let (client_conn, server_conn) = new_socket_pair(client_addr, server_addr);
-            let (client_conn, client_handle) = FaultyTcpStream::wrap(handle.time_handle(), client_conn);
+            let (client_conn, client_handle) =
+                FaultyTcpStream::wrap(handle.time_handle(), client_conn);
             // clog both sends and receives
             client_handle.clog_receives();
             client_handle.clog_sends();
@@ -340,7 +345,8 @@ mod tests {
             let client_addr = "127.0.0.1:35255".parse().unwrap();
             // need to keep _server_conn in scope so that actual disconnects due to drop are not confused with injected ones
             let (client_conn, _server_conn) = new_socket_pair(client_addr, server_addr);
-            let (client_conn, client_handle) = FaultyTcpStream::wrap(handle.time_handle(), client_conn);
+            let (client_conn, client_handle) =
+                FaultyTcpStream::wrap(handle.time_handle(), client_conn);
 
             let mut transport = Framed::new(client_conn, LinesCodec::new());
             // ensure the transport returns nothing
@@ -355,4 +361,3 @@ mod tests {
         });
     }
 }
-

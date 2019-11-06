@@ -1,5 +1,7 @@
-use rand::{rngs};
-use std::sync;
+use rand::{distributions::uniform::SampleUniform, rngs, Rng};
+
+use rand_distr::{Distribution, Normal};
+use std::{ops, sync};
 
 #[derive(Debug)]
 /// DeterministicRandom provides a deterministic RNG.
@@ -15,7 +17,7 @@ impl Inner {
 }
 
 #[derive(Debug)]
-struct DeterministicRandom {
+pub(crate) struct DeterministicRandom {
     inner: sync::Arc<sync::Mutex<Inner>>,
 }
 
@@ -37,4 +39,28 @@ impl DeterministicRandom {
 #[derive(Debug, Clone)]
 pub struct DeterministicRandomHandle {
     inner: sync::Arc<sync::Mutex<Inner>>,
+}
+
+impl DeterministicRandomHandle {
+    pub fn normal_dist(&self, mean: f64, dev: f64) -> f64 {
+        let normal = Normal::new(mean, dev).expect(&format!(
+            "illegal normal params, mean: {}, deviation: {}",
+            mean, dev
+        ));
+        let mut lock = self.inner.lock().unwrap();
+        normal.sample(&mut lock.rng)
+    }
+
+    pub fn should_fault(&self, probability: f64) -> bool {
+        let mut lock = self.inner.lock().unwrap();
+        lock.rng.gen_bool(probability)
+    }
+
+    pub fn gen_range<T>(&self, range: ops::Range<T>) -> T
+    where
+        T: SampleUniform,
+    {
+        let mut lock = self.inner.lock().unwrap();
+        lock.rng.gen_range(range.start, range.end)
+    }
 }
