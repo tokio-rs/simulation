@@ -1,8 +1,8 @@
 use super::socket;
 use super::Inner;
 use crate::deterministic::{random::DeterministicRandomHandle, time::DeterministicTimeHandle};
-use futures::{Future, FutureExt, Poll, Stream};
-use std::{net, ops, pin::Pin, sync, task::Context, time::Duration};
+use futures::{Future, Poll};
+use std::{net, pin::Pin, sync, task::Context};
 mod swizzle;
 
 const SWIZZLE_START_PROBABILITY: f64 = 0.01;

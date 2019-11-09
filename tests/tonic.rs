@@ -1,9 +1,8 @@
-use futures::{channel::oneshot, Future, FutureExt, StreamExt};
+use futures::{Future, FutureExt};
 use hyper::service::{make_service_fn, service_fn};
 use hyper::{server::accept::Accept, Body, Error, Response};
 use simulation::{deterministic::DeterministicRuntime, Environment};
 use std::{io, net, pin::Pin, task::Context};
-use tokio::io::AsyncReadExt;
 
 use futures::Poll;
 #[derive(Clone)]
@@ -19,18 +18,6 @@ where
     fn spawn(&mut self, future: F) -> Result<(), tokio_executor::SpawnError> {
         <T as Environment>::spawn(&self.inner, Box::pin(future));
         Ok(())
-    }
-}
-
-impl<T> tokio_executor::Executor for HyperExecutor<T>
-where
-    T: simulation::Environment + Send + Sync + 'static,
-{
-    fn spawn(
-        &mut self,
-        _future: Pin<Box<dyn Future<Output = ()> + Send>>,
-    ) -> Result<(), tokio_executor::SpawnError> {
-        unimplemented!()
     }
 }
 
@@ -105,7 +92,7 @@ where
 }
 
 #[test]
-fn foo() {
+fn hyper_request_response() {
     let subscriber = tracing_subscriber::fmt::Subscriber::builder()
         .with_max_level(tracing::Level::TRACE)
         .finish();
@@ -144,9 +131,6 @@ fn foo() {
         };
         let builder = hyper::client::Client::builder();
         let client = builder
-            //.executor(HyperExecutor {
-            //    inner: handle.clone(),
-            //})
             .build(connector);
         let request = hyper::Request::builder()
             .uri("http://127.0.0.1:8080/foo")
@@ -154,12 +138,14 @@ fn foo() {
             .body(hyper::body::Body::default())
             .unwrap();
         let response = client.request(request).await.unwrap();
-        let message = String::new();
         let mut body = response.into_body();
+
         while let Some(Ok(resp)) = body.next().await {
             let bytes = resp.into_bytes();
-            println!("bytes {:?}", bytes)
-            //let resp = String::from_utf8().unwrap();
+            let message = std::str::from_utf8(&bytes[..]).unwrap();
+            assert_eq!(message, "Hello Deterministic world!\n");
+            return
         }
+        assert!(false, "expected to read response message");
     });
 }
