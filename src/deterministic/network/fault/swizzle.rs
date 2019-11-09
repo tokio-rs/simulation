@@ -1,16 +1,16 @@
+//! Swizzle is a network fault generator which follows the "swizzle clog" approach
+//! popularized by FoundationDB.
+//!
+//! The general algorithm consists of a series of dice rolls followed by actions which introduce
+//! gradual ordered faults in a networked application. Connections are "clogged" between endpoints,
+//! causing infinite delays for existing and new connections.
+//!
+//! 1. Roll dice to decide if network swizzle should happen.
+//! 2. Pick a random subset of connections and order them.
+//! 3. Wait a random amount of time before setting the first connection as clogged.
+//! 4. Repeat this process until all connections have been clogged.
+//! 5. Once all connections have been clogged, unclog each connection in reverse order.
 use super::CloggedConnection;
-/// Swizzle is a network fault generator which follows the "swizzle clog" approach
-/// popularized by FoundationDB.
-///
-/// The general algorithm consists of a series of dice rolls followed by actions which introduce
-/// gradual ordered faults in a networked application. Connections are "clogged" between endpoints,
-/// causing infinite delays for existing and new connections.
-///
-/// 1. Roll dice to decide if network swizzle should happen.
-/// 2. Pick a random subset of connections and order them.
-/// 3. Wait a random amount of time before setting the first connection as clogged.
-/// 4. Repeat this process until all connections have been clogged.
-/// 5. Once all connections have been clogged, unclog each connection in reverse order.
 use crate::deterministic::{random::DeterministicRandomHandle, DeterministicTimeHandle};
 use futures::{FutureExt, Poll, Stream};
 use std::{ops, pin::Pin, task::Context, time::Duration};
@@ -25,11 +25,8 @@ const SWIZZLE_UNSWIZZLE_PAUSE: ops::Range<Duration> =
     Duration::from_secs(0)..Duration::from_secs(120);
 
 /// State of the SwizzleClog operation. State progression is as follows:
-/// ```
-///     Idle  --------> Clog
-///                     |
-///                     v
-///     ReverseIdle <-- ReverseIdle
+/// ```text
+///     Idle --> Clog --> ReverseIdle --> Unclog
 /// ```
 ///
 /// In between each state transition, various timeouts or dice rolls must be satsified to
@@ -53,13 +50,13 @@ enum State {
 }
 
 #[derive(Debug, PartialEq, Clone, Copy)]
-enum SwizzleAction {
+pub(crate) enum SwizzleAction {
     Clog(CloggedConnection),
     Unclog(CloggedConnection),
 }
 
 /// i love this word
-struct Swizzler {
+pub(crate) struct Swizzler {
     random: DeterministicRandomHandle,
     time: DeterministicTimeHandle,
     state: State,
@@ -69,7 +66,7 @@ struct Swizzler {
 }
 
 impl Swizzler {
-    fn new(
+    pub(crate) fn new(
         random: DeterministicRandomHandle,
         time: DeterministicTimeHandle,
         connections: Vec<CloggedConnection>,
@@ -100,7 +97,7 @@ impl Swizzler {
             self.delay.take();
             return Poll::Ready(());
         }
-        return Poll::Ready(());
+        Poll::Ready(())
     }
 }
 

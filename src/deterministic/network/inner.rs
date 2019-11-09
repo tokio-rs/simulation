@@ -5,6 +5,7 @@ use std::{
     collections::{self, hash_map::Entry},
     io, net,
 };
+use tracing::trace;
 
 #[derive(Debug)]
 pub(crate) struct Inner {
@@ -32,8 +33,7 @@ impl Inner {
             .connections
             .iter()
             .map(|c| c.source())
-            .collect::<Vec<_>>()
-            .contains(&source)
+            .any(|x| x == source)
         {
             return Err(io::ErrorKind::AddrInUse.into());
         }
@@ -84,6 +84,7 @@ impl Inner {
         source: net::IpAddr,
         dest: net::SocketAddr,
     ) -> impl Future<Output = Result<socket::FaultyTcpStream<SocketHalf>, io::Error>> {
+        trace!("establishing new connection {} -> {}", source, dest);
         self.gc_dropped();
         let free_socket_port = self.unused_socket_port(source);
         let source_addr = net::SocketAddr::new(source, free_socket_port);
@@ -113,6 +114,7 @@ impl Inner {
     }
 
     pub fn listen(&mut self, bind_addr: net::SocketAddr) -> Result<Listener, io::Error> {
+        trace!("registering listener for {}", bind_addr);
         self.gc_dropped();
         match self.endpoints.remove(&bind_addr) {
             Some(listener_state) => {
@@ -145,12 +147,13 @@ impl Inner {
                 return true;
             }
         }
-        return false;
+        false
     }
 
     /// Clog all new connections from one IP to another. If there are any existing connections, they
     /// are also clogged.
     fn clog_connection(&mut self, clog: CloggedConnection) {
+        trace!("clogging connection {:?}", clog);
         let clog_source = clog.source();
         let clog_dest = clog.dest();
         self.clogged.insert(clog);
@@ -166,6 +169,7 @@ impl Inner {
     /// Unclog all new connection between two IP addresses. If there are any existing connections which
     /// are clogged, they are unclogged.
     fn unclog_connection(&mut self, unclog: CloggedConnection) {
+        trace!("unclogging connection {:?}", unclog);
         let clog_source = unclog.source();
         let clog_dest = unclog.dest();
         self.clogged.remove(&unclog);

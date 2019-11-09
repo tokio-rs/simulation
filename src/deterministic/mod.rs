@@ -152,12 +152,11 @@ impl DeterministicRuntime {
         let DeterministicRuntime {
             ref mut time_handle,
             ref mut executor,
-            ref mut reactor_handle,
+            reactor_handle: _,
             ..
         } = *self;
         // Setup mock clock globals
         let clock = tokio_timer::clock::Clock::new_with_now(time_handle.clone_now());
-        let _reactor = tokio_net::driver::set_default(&reactor_handle);
         let timer_handle = time_handle.clone_timer_handle();
         let _guard = tokio_timer::timer::set_default(&timer_handle);
         tokio_timer::clock::with_default(&clock, || {

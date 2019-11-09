@@ -57,7 +57,7 @@ impl SwizzleClogInjector {
             self.started = true;
             return true;
         }
-        return false;
+        false
     }
 
     fn ensure_swizzle_collection(&mut self) {

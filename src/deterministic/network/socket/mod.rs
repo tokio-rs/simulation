@@ -1,9 +1,10 @@
 use bytes::{Buf, Bytes, IntoBuf};
 use futures::{channel::mpsc, Future, Poll, Sink, SinkExt, Stream};
-use std::{io, net, pin::Pin, task::Context};
+use std::{fmt, io, net, pin::Pin, task::Context};
 use tokio::io::{AsyncRead, AsyncWrite};
 pub mod fault;
 pub use fault::{FaultyTcpStream, FaultyTcpStreamHandle};
+use tracing::{span, trace, Level};
 
 /// Returns a client/server socket pair, along with a SocketHandle which can be used to close
 /// either side of the socket halfs.
@@ -18,7 +19,6 @@ pub fn new_socket_pair(
     (client_socket, server_socket)
 }
 
-#[derive(Debug)]
 pub struct SocketHalf {
     tx: mpsc::Sender<Bytes>,
     rx: mpsc::Receiver<Bytes>,
@@ -26,6 +26,19 @@ pub struct SocketHalf {
     shutdown: bool,
     local_addr: net::SocketAddr,
     peer_addr: net::SocketAddr,
+}
+
+impl fmt::Debug for SocketHalf {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "SocketHalf {{ local_addr: {}, peer_addr: {}, shutdown: {}, staged: {:?} }}",
+            self.local_addr,
+            self.peer_addr,
+            self.shutdown,
+            self.staged.as_ref().map(|b| b.len())
+        )
+    }
 }
 
 impl SocketHalf {
@@ -61,7 +74,8 @@ impl AsyncRead for SocketHalf {
         cx: &mut Context<'_>,
         dst: &mut [u8],
     ) -> Poll<io::Result<usize>> {
-        loop {
+        span!(Level::TRACE, "AsyncRead::poll_read", "{:?}", self).in_scope(|| loop {
+            trace!("attempting to read {} bytes", dst.len());
             if let Some(mut bytes) = self.staged.take() {
                 debug_assert!(!bytes.is_empty(), "bytes should not be empty at this point");
                 let to_write = std::cmp::min(dst.len(), bytes.len());
@@ -71,14 +85,22 @@ impl AsyncRead for SocketHalf {
                 if !bytes.is_empty() {
                     self.staged.replace(bytes);
                 }
+                trace!("read {} bytes", to_write);
                 return Poll::Ready(Ok(to_write));
             }
+            trace!("no bytes staged");
             let stream = Pin::new(&mut self.rx);
             match futures::ready!(stream.poll_next(cx)) {
-                Some(new_bytes) => self.staged.replace(new_bytes),
-                None => return Poll::Ready(Err(io::ErrorKind::BrokenPipe.into())),
+                Some(new_bytes) => {
+                    trace!("found staged bytes");
+                    self.staged.replace(new_bytes)
+                }
+                None => {
+                    trace!("socket disconnected");
+                    return Poll::Ready(Err(io::ErrorKind::BrokenPipe.into()));
+                }
             };
-        }
+        })
     }
 }
 
@@ -88,29 +110,44 @@ impl AsyncWrite for SocketHalf {
         cx: &mut Context<'_>,
         buf: &[u8],
     ) -> Poll<Result<usize, io::Error>> {
-        let size = buf.len();
-        let bytes: Bytes = buf.into();
-        let send = self.tx.send(bytes);
-        futures::pin_mut!(send);
-        match futures::ready!(send.poll(cx)) {
-            Ok(()) => Poll::Ready(Ok(size)),
-            Err(_) => Poll::Ready(Err(io::ErrorKind::BrokenPipe.into())),
-        }
+        span!(Level::TRACE, "AsyncWrite::poll_write", "{:?}", self).in_scope(|| loop {
+            let size = buf.len();
+            let bytes: Bytes = buf.into();
+            trace!("writing {} bytes", size);
+            let send = self.tx.send(bytes);
+            futures::pin_mut!(send);
+            match futures::ready!(send.poll(cx)) {
+                Ok(()) => {
+                    trace!("wrote {} bytes", size);
+                    return Poll::Ready(Ok(size));
+                }
+                Err(_) => {
+                    trace!("failed to write bytes");
+                    return Poll::Ready(Err(io::ErrorKind::BrokenPipe.into()));
+                }
+            };
+        })
     }
     fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), io::Error>> {
-        let stream = &mut self.tx;
-        futures::pin_mut!(stream);
-        stream
-            .poll_flush(cx)
-            .map_err(|_| io::ErrorKind::BrokenPipe.into())
+        span!(Level::TRACE, "AsyncWrite::poll_flush", "{:?}", self).in_scope(|| {
+            trace!("flushing");
+            let stream = &mut self.tx;
+            futures::pin_mut!(stream);
+            stream
+                .poll_flush(cx)
+                .map_err(|_| io::ErrorKind::BrokenPipe.into())
+        })
     }
     fn poll_shutdown(
         mut self: Pin<&mut Self>,
         cx: &mut Context<'_>,
     ) -> Poll<Result<(), io::Error>> {
-        Pin::new(&mut self.tx)
-            .poll_close(cx)
-            .map_err(|_| io::ErrorKind::BrokenPipe.into())
+        span!(Level::TRACE, "AsyncWrite::poll_flush", "{:?}", self).in_scope(|| {
+            trace!("shutting down");
+            Pin::new(&mut self.tx)
+                .poll_close(cx)
+                .map_err(|_| io::ErrorKind::BrokenPipe.into())
+        })
     }
 }
 

@@ -43,10 +43,9 @@ pub struct DeterministicRandomHandle {
 
 impl DeterministicRandomHandle {
     pub fn normal_dist(&self, mean: f64, dev: f64) -> f64 {
-        let normal = Normal::new(mean, dev).expect(&format!(
-            "illegal normal params, mean: {}, deviation: {}",
-            mean, dev
-        ));
+        let normal = Normal::new(mean, dev).unwrap_or_else(|_| {
+            panic!("illegal normal params, mean: {}, deviation: {}", mean, dev)
+        });
         let mut lock = self.inner.lock().unwrap();
         normal.sample(&mut lock.rng)
     }
