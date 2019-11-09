@@ -6,10 +6,10 @@
 //! There are 3 layers on which the `DeterministicRuntime` is built.
 //!
 //! - `DeterministicRandom` allows for accessing a deterministic source of randomness.
-//! - `DeterministicScheduling` allows for spawning and scheduling tasks deterministicially,
-//!    and provides a deterministic time source.
+//! - `DeterministicTime` provides a deterministic time source.
 //! - `DeterministicNetwork` provides a process wide networking in memory networking implementation.
 //!
+//! `DeterministicRuntime` uses these to support deterministic task scheduling and fault injection.
 use crate::Error;
 use async_trait::async_trait;
 use futures::Future;
