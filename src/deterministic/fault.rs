@@ -32,7 +32,7 @@ impl Config {
             socket_read_delay_prob: 0.10,
             socket_write_delay: time::Duration::from_millis(0)..time::Duration::from_millis(5000),
             socket_write_delay_prob: 0.10,
-            disconnect_prob: 0.01,
+            disconnect_prob: 0.001,
         }
     }
 }
