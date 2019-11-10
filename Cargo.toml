@@ -13,28 +13,27 @@ categories = ["simulation", "asynchronous", "network-programming"]
 keywords = ["simulation", "deterministic", "asynchronous", "testing"]
 
 [dependencies]
-tokio = { version = "0.2.0-alpha.6", features = ["sync"] }
+async-trait = "0.1.17"
+bytes = "0.4.12"
 futures-preview = { version = "0.3.0-alpha.19", features = ["async-await"] }
-tokio-timer = "0.3.0-alpha.6"
+rand = { version = "0.7.2", features = ["small_rng"] }
+rand_distr = "0.2.2"
+tokio = { version = "0.2.0-alpha.6", features = ["sync"] }
 tokio-executor = "0.2.0-alpha.6"
 tokio-net = "0.2.0-alpha.6"
-bytes = "0.4.12"
 tokio-sync = "0.2.0-alpha.6"
-try-lock = "0.2.2"
 tokio-test = "0.2.0-alpha.6"
-rand = { version = "0.7.2", features = ["small_rng"] }
-async-trait = "0.1.17"
-tokio-io = "0.2.0-alpha.6"
-rand_distr = "0.2.2"
+tokio-timer = "0.3.0-alpha.6"
 tracing = "0.1.10"
-tracing-subscriber = "0.1.6"
-tracing-futures = {version = "0.1.1", features = ["tokio-alpha"]}
 tracing-attributes = "0.1.5"
+tracing-futures = {version = "0.1.1", features = ["tokio-alpha"]}
+tracing-subscriber = "0.1.6"
+pin-project = "0.4.5"
+
 
 [dev-dependencies]
-tonic = "0.1.0-alpha.5"
-prost = "0.5.0"
-
 hyper = { version = "0.13.0-alpha.4", features = ["unstable-stream", "tcp"] }
+prost = "0.5.0"
+tonic = "0.1.0-alpha.5"
 tower-service = "0.3.0-alpha.2"
-http = "0.1.19"
+

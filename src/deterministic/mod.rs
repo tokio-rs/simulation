@@ -21,6 +21,7 @@ use std::{
 mod network;
 mod random;
 mod time;
+mod machine;
 pub(crate) use network::{DeterministicNetwork, DeterministicNetworkHandle};
 pub use network::{Listener, Socket};
 pub(crate) use random::{DeterministicRandom, DeterministicRandomHandle};

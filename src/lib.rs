@@ -122,6 +122,8 @@ use tokio::io::{AsyncRead, AsyncWrite};
 pub mod deterministic;
 pub mod singlethread;
 
+mod next;
+
 #[derive(Debug)]
 pub enum Error {
     Spawn {
@@ -164,7 +166,7 @@ pub trait Environment: Unpin + Sized + Clone + Send + 'static {
         let now = self.now();
         self.delay(now + from_now)
     }
-    /// Creates a timeout future which will execute blah blah
+    /// Creates a timeout future which which will execute T until the timeout elapses.
     fn timeout<T>(&self, value: T, timeout: time::Duration) -> tokio_timer::Timeout<T>;
 
     async fn bind<A>(&self, addr: A) -> io::Result<Self::TcpListener>
