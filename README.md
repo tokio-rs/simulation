@@ -100,7 +100,8 @@ issue stays fixed.
    }
    #[test]
    fn test() {
-       // This particular example will fail with a seed value of 22 due to not handling disconnects.
+       // Various seed values can be supplied to `DeterministicRuntime::new_with_seed` to find a seed
+       // value for which this example terminates incorrectly.
        let mut runtime = simulation::deterministic::DeterministicRuntime::new_with_seed(1).unwrap();
        let handle = runtime.handle();
        runtime.block_on(async {

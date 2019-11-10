@@ -229,8 +229,8 @@ fn simulate(seed: u64) -> std::time::Duration {
 /// Run our simulated bank with various seeds from 1..10
 /// to find a seed which causes an overdraft.
 ///
-/// Particularly, seed #1 causes a message ordering which results
-/// in an overdraft, while seed #0 does not.
+/// Particularly, seed #4 causes a message ordering which results
+/// in an overdraft, while seed 0-3 do not.
 fn main() {
     for seed in 0..10 {
         println!("--- seed --- {}", seed);
