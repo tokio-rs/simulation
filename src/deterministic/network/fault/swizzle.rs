@@ -10,10 +10,9 @@
 //! 3. Wait a random amount of time before setting the first connection as clogged.
 //! 4. Repeat this process until all connections have been clogged.
 //! 5. Once all connections have been clogged, unclog each connection in reverse order.
-use super::CloggedConnection;
 use crate::deterministic::{random::DeterministicRandomHandle, DeterministicTimeHandle};
 use futures::{FutureExt, Poll, Stream};
-use std::{ops, pin::Pin, task::Context, time::Duration};
+use std::{net, ops, pin::Pin, task::Context, time::Duration};
 
 /// Duration between clogging actions when swizzling.
 const SWIZZLE_PROGRESSION_INTERVAL: ops::Range<Duration> =
@@ -160,6 +159,26 @@ impl Stream for Swizzler {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Hash, Eq, Copy)]
+pub(crate) struct CloggedConnection {
+    source: net::IpAddr,
+    dest: net::IpAddr,
+}
+
+impl CloggedConnection {
+    pub(crate) fn source(&self) -> net::IpAddr {
+        self.source
+    }
+
+    pub(crate) fn dest(&self) -> net::IpAddr {
+        self.dest
+    }
+
+    pub(crate) fn new(source: net::IpAddr, dest: net::IpAddr) -> Self {
+        Self { source, dest }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -168,7 +187,7 @@ mod tests {
     #[test]
     fn swizzle_clog_generator() {
         let mut runtime = crate::deterministic::DeterministicRuntime::new().unwrap();
-        let handle = runtime.handle();
+        let handle = runtime.localhost_handle();
         runtime.block_on(async move {
             let time_handle = handle.time_handle();
             let random_handle = handle.random_handle();

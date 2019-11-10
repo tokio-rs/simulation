@@ -234,7 +234,7 @@ mod tests {
     /// Test that injecting delay and disconnect faults causes the socket to delay and disconnect reads.
     fn faults() {
         let mut runtime = crate::deterministic::DeterministicRuntime::new().unwrap();
-        let handle = runtime.handle();
+        let handle = runtime.localhost_handle();
         runtime.block_on(async {
             let server_addr = "127.0.0.1:9092".parse().unwrap();
             let client_addr = "127.0.0.1:35255".parse().unwrap();
@@ -270,7 +270,7 @@ mod tests {
     #[allow(unused_must_use)]
     fn clogging() {
         let mut runtime = crate::deterministic::DeterministicRuntime::new().unwrap();
-        let handle = runtime.handle();
+        let handle = runtime.localhost_handle();
         runtime.block_on(async {
             let server_addr = "127.0.0.1:9092".parse().unwrap();
             let client_addr = "127.0.0.1:35255".parse().unwrap();
@@ -318,7 +318,7 @@ mod tests {
     /// Test that injecting no faults allows the socket to behave normally.
     fn inactive_faults() {
         let mut runtime = crate::deterministic::DeterministicRuntime::new().unwrap();
-        let handle = runtime.handle();
+        let handle = runtime.localhost_handle();
         runtime.block_on(async {
             let server_addr = "127.0.0.1:9092".parse().unwrap();
             let client_addr = "127.0.0.1:35255".parse().unwrap();
@@ -339,7 +339,7 @@ mod tests {
     /// Test that injecting a disconnect fault unblocks poll.
     fn disconnect_unblocks() {
         let mut runtime = crate::deterministic::DeterministicRuntime::new().unwrap();
-        let handle = runtime.handle();
+        let handle = runtime.localhost_handle();
         runtime.block_on(async {
             let server_addr = "127.0.0.1:9092".parse().unwrap();
             let client_addr = "127.0.0.1:35255".parse().unwrap();

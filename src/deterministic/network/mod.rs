@@ -113,7 +113,7 @@ mod tests {
     /// Once the message has passed through 1000 servers, the test is finished.
     fn test_message_ring() {
         let mut runtime = crate::deterministic::DeterministicRuntime::new().unwrap();
-        let handle = runtime.handle();
+        let handle = runtime.localhost_handle();
         let network = DeterministicNetwork::new(handle.time_handle());
         runtime.block_on(async {
             for oct in 0..100 {
@@ -153,7 +153,7 @@ mod tests {
     #[test]
     fn test_scoped_registration() {
         let mut runtime = crate::deterministic::DeterministicRuntime::new().unwrap();
-        let handle = runtime.handle();
+        let handle = runtime.localhost_handle();
         let network = DeterministicNetwork::new(handle.time_handle());
         runtime.block_on(async {
             // create scoped network handle

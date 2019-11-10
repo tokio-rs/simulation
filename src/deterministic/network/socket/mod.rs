@@ -110,7 +110,7 @@ impl AsyncWrite for SocketHalf {
         cx: &mut Context<'_>,
         buf: &[u8],
     ) -> Poll<Result<usize, io::Error>> {
-        span!(Level::TRACE, "AsyncWrite::poll_write", "{:?}", self).in_scope(|| loop {
+        span!(Level::TRACE, "AsyncWrite::poll_write", "{:?}", self).in_scope(|| {
             let size = buf.len();
             let bytes: Bytes = buf.into();
             trace!("writing {} bytes", size);
@@ -118,11 +118,9 @@ impl AsyncWrite for SocketHalf {
             futures::pin_mut!(send);
             match futures::ready!(send.poll(cx)) {
                 Ok(()) => {
-                    trace!("wrote {} bytes", size);
                     return Poll::Ready(Ok(size));
                 }
                 Err(_) => {
-                    trace!("failed to write bytes");
                     return Poll::Ready(Err(io::ErrorKind::BrokenPipe.into()));
                 }
             };
@@ -191,7 +189,7 @@ mod tests {
     /// Tests that messages can be sent and received using a pair of MemoryStreams.
     fn test_ping_pong() {
         let mut runtime = crate::deterministic::DeterministicRuntime::new().unwrap();
-        let handle = runtime.handle();
+        let handle = runtime.localhost_handle();
         runtime.block_on(async {
             let server_addr = "127.0.0.1:9092".parse().unwrap();
             let client_addr = "127.0.0.1:35255".parse().unwrap();
@@ -212,7 +210,7 @@ mod tests {
     /// reads/writes with an error.
     fn test_disconnect() {
         let mut runtime = crate::deterministic::DeterministicRuntime::new().unwrap();
-        let handle = runtime.handle();
+        let handle = runtime.localhost_handle();
         runtime.block_on(async {
             let server_addr = "127.0.0.1:9092".parse().unwrap();
             let client_addr = "127.0.0.1:35255".parse().unwrap();

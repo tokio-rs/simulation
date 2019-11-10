@@ -46,10 +46,10 @@ where
         match futures::ready!(self.inner.connect(self.addr).poll_unpin(cx)) {
             Ok(conn) => {
                 let connected = hyper::client::connect::Connected::new();
-                return Poll::Ready(Ok((conn, connected)));
+                Poll::Ready(Ok((conn, connected)))
             }
-            Err(e) => return Poll::Ready(Err(e)),
-        };
+            Err(e) => Poll::Ready(Err(e)),
+        }
     }
 }
 
@@ -94,7 +94,7 @@ where
 #[test]
 fn hyper_request_response() {
     let mut runtime = DeterministicRuntime::new().unwrap();
-    let handle = runtime.handle();
+    let handle = runtime.localhost_handle();
     runtime.block_on(async move {
         let server_addr: net::SocketAddr = "127.0.0.1:8080".parse().unwrap();
         let server_handle = handle.clone();
@@ -133,12 +133,12 @@ fn hyper_request_response() {
         let response = client.request(request).await.unwrap();
         let mut body = response.into_body();
 
-        while let Some(Ok(resp)) = body.next().await {
+        if let Some(Ok(resp)) = body.next().await {
             let bytes = resp.into_bytes();
             let message = std::str::from_utf8(&bytes[..]).unwrap();
             assert_eq!(message, "Hello Deterministic world!\n");
             return;
         }
-        assert!(false, "expected to read response message");
+        panic!("expected to read response message");
     });
 }

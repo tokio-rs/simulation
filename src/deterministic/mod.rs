@@ -28,7 +28,6 @@ pub(crate) use time::{DeterministicTime, DeterministicTimeHandle};
 
 #[derive(Debug, Clone)]
 pub struct DeterministicRuntimeHandle {
-    reactor_handle: tokio_net::driver::Handle,
     time_handle: time::DeterministicTimeHandle,
     network_handle: DeterministicNetworkHandle,
     executor_handle: tokio_executor::current_thread::Handle,
@@ -86,7 +85,6 @@ type Executor =
 pub struct DeterministicRuntime {
     executor: Executor,
     time_handle: DeterministicTimeHandle,
-    reactor_handle: tokio_net::driver::Handle,
     network: DeterministicNetwork,
     random: DeterministicRandom,
 }
@@ -98,7 +96,7 @@ impl DeterministicRuntime {
     pub fn new_with_seed(seed: u64) -> Result<Self, Error> {
         let reactor =
             tokio_net::driver::Reactor::new().map_err(|source| Error::RuntimeBuild { source })?;
-        let reactor_handle = reactor.handle();
+
         let time = DeterministicTime::new_with_park(reactor);
         let time_handle = time.handle();
         let network = DeterministicNetwork::new(time_handle.clone());
@@ -107,22 +105,31 @@ impl DeterministicRuntime {
         Ok(DeterministicRuntime {
             executor,
             time_handle,
-            reactor_handle,
             network,
             random,
         })
     }
 
-    pub fn handle(&self) -> DeterministicRuntimeHandle {
+    pub fn handle(&self, addr: net::IpAddr) -> DeterministicRuntimeHandle {
         DeterministicRuntimeHandle {
-            reactor_handle: self.reactor_handle.clone(),
             time_handle: self.time_handle.clone(),
-            network_handle: self
-                .network
-                .scoped(net::IpAddr::V4(net::Ipv4Addr::LOCALHOST)),
+            network_handle: self.network.scoped(addr),
             executor_handle: self.executor.handle(),
             random_handle: self.random.handle(),
         }
+    }
+
+    pub fn latency_fault(&self) -> network::fault::LatencyFaultInjector {
+        let network_inner = self.network.clone_inner();
+        network::fault::LatencyFaultInjector::new(
+            network_inner,
+            self.random.handle(),
+            self.time_handle.clone(),
+        )
+    }
+
+    pub fn localhost_handle(&self) -> DeterministicRuntimeHandle {
+        self.handle(net::IpAddr::V4(net::Ipv4Addr::LOCALHOST))
     }
 
     pub fn spawn<F>(&mut self, future: F) -> &mut Self
@@ -152,7 +159,6 @@ impl DeterministicRuntime {
         let DeterministicRuntime {
             ref mut time_handle,
             ref mut executor,
-            reactor_handle: _,
             ..
         } = *self;
         // Setup mock clock globals
@@ -175,7 +181,7 @@ mod tests {
     /// Test that delays accurately advance the clock.
     fn delays() {
         let mut runtime = DeterministicRuntime::new().unwrap();
-        let handle = runtime.handle();
+        let handle = runtime.localhost_handle();
         runtime.block_on(async {
             let start_time = handle.now();
             handle.delay_from(Duration::from_secs(30)).await;
@@ -190,7 +196,7 @@ mod tests {
     /// being advanced in accordance with the length of the delay.
     fn ordering() {
         let mut runtime = DeterministicRuntime::new().unwrap();
-        let handle = runtime.handle();
+        let handle = runtime.localhost_handle();
         runtime.block_on(async {
             let delay1 = handle.delay_from(Duration::from_secs(10));
             let delay2 = handle.delay_from(Duration::from_secs(30));
@@ -216,7 +222,7 @@ mod tests {
     /// Test that the Tokio global timer and clock are both set correctly.
     fn globals() {
         let mut runtime = DeterministicRuntime::new().unwrap();
-        let handle = runtime.handle();
+        let handle = runtime.localhost_handle();
         runtime.block_on(async {
             let start_time = tokio_timer::clock::now();
             assert_eq!(
