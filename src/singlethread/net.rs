@@ -1,5 +1,6 @@
 use async_trait::async_trait;
-use std::{io, net};
+use std::{io, net, pin::Pin};
+use futures::Stream;
 use tokio::net::{TcpListener, TcpStream};
 
 impl crate::TcpStream for TcpStream {
@@ -25,5 +26,8 @@ impl crate::TcpListener for TcpListener {
     }
     fn set_ttl(&self, ttl: u32) -> io::Result<()> {
         tokio::net::TcpListener::set_ttl(self, ttl)
+    }
+    fn into_stream(self) -> Pin<Box<dyn Stream<Item = Result<Self::Stream, io::Error>>>> {
+        Box::pin(self.incoming())
     }
 }

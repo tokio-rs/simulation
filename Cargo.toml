@@ -31,5 +31,10 @@ tracing-subscriber = "0.1.6"
 pin-project = "0.4.5"
 
 
+[build-dependencies]
+tonic-build = { path = "../../hyperium/tonic/tonic-build" }
+
 [dev-dependencies]
 hyper = { version = "0.13.0-alpha.4", features = ["unstable-stream", "tcp"] }
+tonic = {git = "https://github.com/gardnervickers/tonic", branch = "simulation"}
+prost = "0.5.0"

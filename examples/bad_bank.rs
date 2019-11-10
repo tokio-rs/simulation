@@ -239,7 +239,7 @@ fn main() {
         let simulation_duration = simulate(seed);
         let true_duration = std::time::Instant::now() - true_start_time;
         println!(
-            "real-time: {:?}\n simulated-time: {:?}",
+            "real-time: {:?}\nsimulated-time: {:?}",
             true_duration, simulation_duration
         )
     }

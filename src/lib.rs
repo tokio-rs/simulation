@@ -116,8 +116,8 @@
 //! [Delay]:[tokio_timer::Delay]
 //! [Timeout]:[tokio_timer::Timeout]
 use async_trait::async_trait;
-use futures::{Future, FutureExt};
-use std::{io, net, time};
+use futures::{Future, FutureExt, Stream};
+use std::{io, net, time, pin::Pin};
 use tokio::io::{AsyncRead, AsyncWrite};
 
 pub mod deterministic;
@@ -188,6 +188,7 @@ pub trait TcpListener {
     fn local_addr(&self) -> Result<net::SocketAddr, io::Error>;
     fn ttl(&self) -> io::Result<u32>;
     fn set_ttl(&self, ttl: u32) -> io::Result<()>;
+    fn into_stream(self) -> Pin<Box<dyn Stream<Item = Result<Self::Stream, io::Error>>>>;
 }
 
 pub fn spawn_with_result<F, E, U>(env: &E, future: F) -> impl Future<Output = U>
