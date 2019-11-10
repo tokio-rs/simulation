@@ -11,12 +11,7 @@
 use bytes::BytesMut;
 use futures::{FutureExt, SinkExt, StreamExt};
 use simulation::{deterministic::DeterministicRuntime, Environment, TcpListener};
-use std::{
-    io,
-    net,
-    sync,
-    time,
-};
+use std::{io, net, sync, time};
 use tokio::codec::{Framed, LinesCodec};
 
 #[derive(Debug)]
@@ -91,11 +86,12 @@ impl tokio::codec::Encoder for Codec {
 
 struct BankingServer<E> {
     env: E,
-    bank_balance: sync::Arc<sync::atomic::AtomicIsize>
+    bank_balance: sync::Arc<sync::atomic::AtomicIsize>,
 }
 
 async fn handle_new_connection<S>(bank_balance: sync::Arc<sync::atomic::AtomicIsize>, stream: S)
-    where S: simulation::TcpStream
+where
+    S: simulation::TcpStream,
 {
     let mut transport = Framed::new(stream, Codec::wrap(LinesCodec::new()));
     let user_balance = sync::Arc::clone(&bank_balance);
@@ -105,7 +101,7 @@ async fn handle_new_connection<S>(bank_balance: sync::Arc<sync::atomic::AtomicIs
                 user_balance.fetch_add(amount as isize, sync::atomic::Ordering::SeqCst);
             }
             BankOperations::Withdraw { amount } => {
-                if user_balance.load(sync::atomic::Ordering::SeqCst) <= 0  {
+                if user_balance.load(sync::atomic::Ordering::SeqCst) <= 0 {
                     panic!("overdraft detected!");
                 }
                 user_balance.fetch_sub(amount as isize, sync::atomic::Ordering::SeqCst);
@@ -123,18 +119,27 @@ async fn handle_new_connection<S>(bank_balance: sync::Arc<sync::atomic::AtomicIs
     println!("BankingServer connection closed");
 }
 
-impl<E> BankingServer<E> where E: Environment + Send + Sync + Unpin {
+impl<E> BankingServer<E>
+where
+    E: Environment + Send + Sync + Unpin,
+{
     fn new(handle: E, initial_balance: usize) -> BankingServer<E> {
         Self {
             env: handle,
-            bank_balance: sync::Arc::new(sync::atomic::AtomicIsize::new(initial_balance as isize))
+            bank_balance: sync::Arc::new(sync::atomic::AtomicIsize::new(initial_balance as isize)),
         }
     }
 
     async fn serve(self, port: u16) -> Result<(), io::Error> {
-        let mut listener = self.env.bind(net::SocketAddr::new(net::Ipv4Addr::LOCALHOST.into(), port)).await?;
+        let mut listener = self
+            .env
+            .bind(net::SocketAddr::new(net::Ipv4Addr::LOCALHOST.into(), port))
+            .await?;
         while let Ok((new_connection, _)) = listener.accept().await {
-            self.env.spawn(handle_new_connection(self.bank_balance.clone(), new_connection))
+            self.env.spawn(handle_new_connection(
+                self.bank_balance.clone(),
+                new_connection,
+            ))
         }
         println!("BankingServer shut down");
         Ok(())
@@ -151,9 +156,14 @@ where
         if let Ok(socket) = handle.connect(bank_server_addr).await {
             let mut transport = Framed::new(socket, Codec::wrap(LinesCodec::new()));
             if let Ok(()) = transport.send(BankOperations::BalanceRequest).await {
-                if let Some(Ok(BankOperations::BalanceResponse { balance })) = transport.next().await {
+                if let Some(Ok(BankOperations::BalanceResponse { balance })) =
+                    transport.next().await
+                {
                     if balance > withdraw {
-                        if let Ok(()) = transport.send(BankOperations::Withdraw { amount: withdraw }).await {
+                        if let Ok(()) = transport
+                            .send(BankOperations::Withdraw { amount: withdraw })
+                            .await
+                        {
                             handle.delay_from(period).await;
                         } else {
                             println!("error sending withdraw request, reconnecting");
@@ -171,7 +181,6 @@ where
                 println!("error sending balance request, reconnecting");
                 continue 'outer;
             }
-
         } else {
             println!("error connecting to bank server, retrying...");
             continue;
