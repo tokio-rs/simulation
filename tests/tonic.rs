@@ -1,8 +1,7 @@
-use tonic::{transport::Server, Request, Response, Status};
 use simulation::deterministic::DeterministicRuntime;
-use std::{net};
 use simulation::{Environment, TcpListener};
-
+use std::net;
+use tonic::{transport::Server, Request, Response, Status};
 
 pub mod hello_world {
     tonic::include_proto!("helloworld");
@@ -10,9 +9,9 @@ pub mod hello_world {
 
 use hello_world::{
     server::{Greeter, GreeterServer},
+    client::{GreeterClient},
     HelloReply, HelloRequest,
 };
-
 
 #[derive(Default)]
 pub struct MyGreeter {}
@@ -38,12 +37,21 @@ fn hyper_request_response() {
     let handle = runtime.localhost_handle();
 
     runtime.block_on(async move {
-        let greeter = MyGreeter::default();
+        let server_handle = handle.clone();
         let bind_addr: net::SocketAddr = "127.0.0.1:9092".parse().unwrap();
-        let listener = handle.bind(bind_addr).await.unwrap();
-        let listener = listener.into_stream();
-        Server::builder()
-            .add_service(GreeterServer::new(greeter))
-            .serve_from_stream(listener).await.unwrap();
+        // spawn a server
+        handle.spawn(async move {
+            let greeter = MyGreeter::default();
+
+            let listener = server_handle.bind(bind_addr).await.unwrap();
+            let listener = listener.into_stream();
+            Server::builder()
+                .add_service(GreeterServer::new(greeter))
+                .serve_from_stream(listener)
+                .await
+                .unwrap();
+        });
+        // TODO: Figure out how to wire up the client
+        //let mut client = GreeterClient::new("http://[::1]:9092");
     });
 }

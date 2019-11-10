@@ -1,7 +1,7 @@
 use super::{FaultyTcpStream, SocketHalf};
 use crate::TcpStream;
 use async_trait::async_trait;
-use futures::{channel::mpsc, StreamExt, Stream, Poll};
+use futures::{channel::mpsc, Poll, Stream, StreamExt};
 use std::{fmt, io, net, pin::Pin, task::Context};
 use tracing::trace;
 
@@ -65,16 +65,12 @@ struct ListenerStream {
 
 impl Stream for ListenerStream {
     type Item = Result<FaultyTcpStream<SocketHalf>, io::Error>;
-    fn poll_next(
-        mut self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-    ) -> Poll<Option<Self::Item>> {
+    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         match futures::ready!(self.incoming.poll_next_unpin(cx)) {
             Some(item) => Poll::Ready(Some(Ok(item))),
-            None => Poll::Ready(None)
+            None => Poll::Ready(None),
         }
     }
-
 }
 
 #[async_trait]
@@ -92,7 +88,7 @@ impl crate::TcpListener for Listener {
     fn set_ttl(&self, _: u32) -> io::Result<()> {
         Ok(())
     }
-    fn into_stream(self) -> Pin<Box<dyn Stream<Item = Result<Self::Stream, io::Error>>>> {
+    fn into_stream(self) -> Pin<Box<dyn Stream<Item = Result<Self::Stream, io::Error>> + Send>> {
         let Listener { incoming, .. } = self;
         Box::pin(ListenerStream { incoming })
     }
