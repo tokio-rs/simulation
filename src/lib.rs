@@ -123,8 +123,6 @@ use tokio::io::{AsyncRead, AsyncWrite};
 pub mod deterministic;
 pub mod singlethread;
 
-mod next;
-
 #[derive(Debug)]
 pub enum Error {
     Spawn {
