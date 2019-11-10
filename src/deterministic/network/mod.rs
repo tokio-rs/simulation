@@ -256,16 +256,16 @@ where
     }
 
     fn inject_faults(&self) {
-        let mut lock = self.inner.lock().unwrap();
-        for (_, v) in lock.fault_injectors.iter_mut() {
-            if let Some(idx) = self
-                .fault_injector
-                .pick_rand_connection_disconnect(0..v.len())
-            {
-                let fault_injector = v.remove(idx);
-                fault_injector.disconnect();
-            }
-        }
+        // let mut lock = self.inner.lock().unwrap();
+        // for (_, v) in lock.fault_injectors.iter_mut() {
+        //     if let Some(idx) = self
+        //         .fault_injector.
+        //         .pick_rand_connection_disconnect(0..v.len())
+        //     {
+        //         let fault_injector = v.remove(idx);
+        //         fault_injector.disconnect();
+        //     }
+        // }
     }
 }
 

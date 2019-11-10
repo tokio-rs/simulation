@@ -9,17 +9,17 @@
 //! 3. An ATM process for Bob, which attempts to withdraw 2 dollars every 200ms.
 
 use bytes::BytesMut;
-use futures::{channel::oneshot, FutureExt, SinkExt, StreamExt};
+use futures::{FutureExt, SinkExt, StreamExt};
 use simulation::{deterministic::DeterministicRuntime, Environment, TcpListener};
 use std::{
     io,
-    net::Ipv4Addr,
-    net::{IpAddr, SocketAddr},
-    sync::Arc,
-    time::Duration,
+    net,
+    sync,
+    time,
 };
 use tokio::codec::{Framed, LinesCodec};
 
+#[derive(Debug)]
 enum BankOperations {
     Deposit { amount: usize },
     Withdraw { amount: usize },
@@ -89,80 +89,93 @@ impl tokio::codec::Encoder for Codec {
     }
 }
 
-async fn banking_server<E>(
-    handle: E,
-    bind_addr: std::net::SocketAddr,
-    accepting: oneshot::Sender<bool>,
-) where
-    E: Environment,
-{
-    use std::sync::atomic::Ordering;
-    let balance = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(1000));
-    let mut listener = handle.bind(bind_addr).await.unwrap();
-    accepting.send(true).unwrap();
+struct BankingServer<E> {
+    env: E,
+    bank_balance: sync::Arc<sync::atomic::AtomicIsize>
+}
 
-    while let Ok((new_connection, _)) = listener.accept().await {
-        let framed_read = Framed::new(new_connection, Codec::wrap(LinesCodec::new()));
-        let (mut sink, mut stream) = framed_read.split();
-        let user_balance = Arc::clone(&balance);
-        // spawn a new worker to handle the connection
-        handle.spawn(async move {
-            while let Some(Ok(message)) = stream.next().await {
-                match message {
-                    BankOperations::Deposit { amount } => {
-                        user_balance.fetch_add(amount, Ordering::SeqCst);
-                    }
-                    BankOperations::Withdraw { amount } => {
-                        if user_balance.load(Ordering::SeqCst) == 0 {
-                            panic!("overdraft detected!");
-                        }
-                        user_balance.fetch_sub(amount, Ordering::SeqCst);
-                    }
-                    BankOperations::BalanceRequest => {
-                        let current_balance = user_balance.load(Ordering::SeqCst);
-                        let message = BankOperations::BalanceResponse {
-                            balance: current_balance,
-                        };
-                        sink.send(message).await.unwrap();
-                    }
-                    _ => unreachable!(),
-                }
+async fn handle_new_connection<S>(bank_balance: sync::Arc<sync::atomic::AtomicIsize>, stream: S)
+    where S: simulation::TcpStream
+{
+    let mut transport = Framed::new(stream, Codec::wrap(LinesCodec::new()));
+    let user_balance = sync::Arc::clone(&bank_balance);
+    while let Some(Ok(message)) = transport.next().await {
+        match message {
+            BankOperations::Deposit { amount } => {
+                user_balance.fetch_add(amount as isize, sync::atomic::Ordering::SeqCst);
             }
-        });
+            BankOperations::Withdraw { amount } => {
+                if user_balance.load(sync::atomic::Ordering::SeqCst) <= 0  {
+                    panic!("overdraft detected!");
+                }
+                user_balance.fetch_sub(amount as isize, sync::atomic::Ordering::SeqCst);
+            }
+            BankOperations::BalanceRequest => {
+                let current_balance = user_balance.load(sync::atomic::Ordering::SeqCst);
+                let message = BankOperations::BalanceResponse {
+                    balance: current_balance as usize,
+                };
+                transport.send(message).await.unwrap();
+            }
+            _ => unreachable!(),
+        }
+    }
+    println!("BankingServer connection closed");
+}
+
+impl<E> BankingServer<E> where E: Environment + Send + Sync + Unpin {
+    fn new(handle: E, initial_balance: usize) -> BankingServer<E> {
+        Self {
+            env: handle,
+            bank_balance: sync::Arc::new(sync::atomic::AtomicIsize::new(initial_balance as isize))
+        }
+    }
+
+    async fn serve(self, port: u16) -> Result<(), io::Error> {
+        let mut listener = self.env.bind(net::SocketAddr::new(net::Ipv4Addr::LOCALHOST.into(), port)).await?;
+        while let Ok((new_connection, _)) = listener.accept().await {
+            self.env.spawn(handle_new_connection(self.bank_balance.clone(), new_connection))
+        }
+        println!("BankingServer shut down");
+        Ok(())
     }
 }
 
 /// atm starts a process with withdraws `withdraw` dollars from the bank every `period`.
-async fn atm<E>(handle: E, period: Duration, withdraw: usize, socket: E::TcpStream)
+async fn atm<E>(handle: E, period: time::Duration, withdraw: usize)
 where
     E: simulation::Environment,
 {
-    let mut transport = Framed::new(socket, Codec::wrap(LinesCodec::new()));
-    loop {
-        println!("atming");
-        // first make a balance request
-        transport
-            .send(BankOperations::BalanceRequest)
-            .await
-            .unwrap();
-        // retrieve balance response
-        if let BankOperations::BalanceResponse { balance } =
-            transport.next().await.unwrap().unwrap()
-        {
-            // if we have money in the account, withdraw it!
-            if balance > withdraw {
-                transport
-                    .send(BankOperations::Withdraw { amount: withdraw })
-                    .await
-                    .unwrap();
+    'outer: loop {
+        let bank_server_addr: net::SocketAddr = "127.0.0.1:9092".parse().unwrap();
+        if let Ok(socket) = handle.connect(bank_server_addr).await {
+            let mut transport = Framed::new(socket, Codec::wrap(LinesCodec::new()));
+            if let Ok(()) = transport.send(BankOperations::BalanceRequest).await {
+                if let Some(Ok(BankOperations::BalanceResponse { balance })) = transport.next().await {
+                    if balance > withdraw {
+                        if let Ok(()) = transport.send(BankOperations::Withdraw { amount: withdraw }).await {
+                            handle.delay_from(period).await;
+                        } else {
+                            println!("error sending withdraw request, reconnecting");
+                            continue 'outer;
+                        }
+                    } else {
+                        println!("account empty, complete!");
+                        return;
+                    }
+                } else {
+                    println!("error reading balance response, reconnecting");
+                    continue 'outer;
+                }
             } else {
-                break;
+                println!("error sending balance request, reconnecting");
+                continue 'outer;
             }
+
         } else {
-            panic!("unexpected response")
+            println!("error connecting to bank server, retrying...");
+            continue;
         }
-        // sleep until the next withdraw.
-        handle.delay_from(period).await;
     }
 }
 
@@ -171,27 +184,23 @@ fn simulate(seed: u64) -> std::time::Duration {
     // let mut runtime = SingleThreadedRuntime::new().unwrap();
     let mut runtime = DeterministicRuntime::new_with_seed(seed).unwrap();
     let handle = runtime.handle();
-    let bank_addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 9092);
     let start_time = handle.now();
     runtime.block_on(async {
         let server_handle = handle.clone();
-        // setup a channel to notify us when a bind happens
-        let (bind_tx, bind_rx) = oneshot::channel();
+        let banking_server = BankingServer::new(server_handle.clone(), 100);
         let mut server_fut = simulation::spawn_with_result(&handle, async move {
-            banking_server(server_handle, bank_addr, bind_tx).await;
+            banking_server.serve(9092).await.unwrap()
         })
         .fuse();
-        bind_rx.await.unwrap();
 
-        let socket = handle.connect(bank_addr).await.unwrap();
         let r1 = simulation::spawn_with_result(
             &handle,
-            atm(handle.clone(), Duration::from_millis(200), 2, socket),
+            atm(handle.clone(), time::Duration::from_millis(200), 2),
         );
-        let socket = handle.connect(bank_addr).await.unwrap();
+
         let r2 = simulation::spawn_with_result(
             &handle,
-            atm(handle.clone(), Duration::from_millis(500), 1, socket),
+            atm(handle.clone(), time::Duration::from_millis(500), 1),
         );
 
         let mut fut = futures::future::join_all(vec![r1, r2]).fuse();
@@ -214,7 +223,7 @@ fn simulate(seed: u64) -> std::time::Duration {
 /// Particularly, seed #1 causes a message ordering which results
 /// in an overdraft, while seed #0 does not.
 fn main() {
-    for seed in 1..10 {
+    for seed in 0..10 {
         println!("--- seed --- {}", seed);
         let true_start_time = std::time::Instant::now();
         let simulation_duration = simulate(seed);
