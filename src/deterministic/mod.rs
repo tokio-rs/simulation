@@ -25,6 +25,7 @@ pub(crate) use network::{DeterministicNetwork, DeterministicNetworkHandle};
 pub use network::{Listener, Socket};
 pub(crate) use random::{DeterministicRandom, DeterministicRandomHandle};
 pub(crate) use time::{DeterministicTime, DeterministicTimeHandle};
+use tokio_net::driver;
 
 #[derive(Debug, Clone)]
 pub struct DeterministicRuntimeHandle {
@@ -79,8 +80,7 @@ impl crate::Environment for DeterministicRuntimeHandle {
     }
 }
 
-type Executor =
-    tokio_executor::current_thread::CurrentThread<DeterministicTime<tokio_net::driver::Reactor>>;
+type Executor = tokio_executor::current_thread::CurrentThread<DeterministicTime<driver::Reactor>>;
 
 pub struct DeterministicRuntime {
     executor: Executor,
@@ -94,8 +94,7 @@ impl DeterministicRuntime {
         DeterministicRuntime::new_with_seed(0)
     }
     pub fn new_with_seed(seed: u64) -> Result<Self, Error> {
-        let reactor =
-            tokio_net::driver::Reactor::new().map_err(|source| Error::RuntimeBuild { source })?;
+        let reactor = driver::Reactor::new().map_err(|source| Error::RuntimeBuild { source })?;
 
         let time = DeterministicTime::new_with_park(reactor);
         let time_handle = time.handle();
