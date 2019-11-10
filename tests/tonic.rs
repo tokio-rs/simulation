@@ -93,11 +93,6 @@ where
 
 #[test]
 fn hyper_request_response() {
-    let subscriber = tracing_subscriber::fmt::Subscriber::builder()
-        .with_max_level(tracing::Level::TRACE)
-        .finish();
-    let _ = tracing::subscriber::set_global_default(subscriber);
-
     let mut runtime = DeterministicRuntime::new().unwrap();
     let handle = runtime.handle();
     runtime.block_on(async move {
@@ -105,7 +100,6 @@ fn hyper_request_response() {
         let server_handle = handle.clone();
         handle.clone().spawn(async move {
             let listener = server_handle.bind(server_addr).await.unwrap();
-            let http = hyper::server::conn::Http::new();
             let make_service = make_service_fn(move |_| {
                 async move {
                     Ok::<_, Error>(service_fn(move |_| {
@@ -118,7 +112,7 @@ fn hyper_request_response() {
                 }
             });
             let accept = HyperAccept { inner: listener };
-            hyper::server::Builder::new(accept, http)
+            hyper::Server::builder(accept)
                 .executor(HyperExecutor {
                     inner: server_handle.clone(),
                 })
@@ -130,8 +124,7 @@ fn hyper_request_response() {
             inner: handle.clone(),
         };
         let builder = hyper::client::Client::builder();
-        let client = builder
-            .build(connector);
+        let client = builder.build(connector);
         let request = hyper::Request::builder()
             .uri("http://127.0.0.1:8080/foo")
             .method("GET")
@@ -144,7 +137,7 @@ fn hyper_request_response() {
             let bytes = resp.into_bytes();
             let message = std::str::from_utf8(&bytes[..]).unwrap();
             assert_eq!(message, "Hello Deterministic world!\n");
-            return
+            return;
         }
         assert!(false, "expected to read response message");
     });

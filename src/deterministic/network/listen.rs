@@ -3,7 +3,7 @@ use crate::TcpStream;
 use async_trait::async_trait;
 use futures::{channel::mpsc, StreamExt};
 use std::{fmt, io, net};
-use tracing::{trace};
+use tracing::trace;
 
 #[derive(Debug)]
 /// ListenerState represents both the bound and unbound state of a Listener.

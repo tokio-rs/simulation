@@ -139,7 +139,6 @@ where
 {
     let mut transport = Framed::new(socket, Codec::wrap(LinesCodec::new()));
     loop {
-        println!("atming");
         // first make a balance request
         transport
             .send(BankOperations::BalanceRequest)
@@ -214,7 +213,7 @@ fn simulate(seed: u64) -> std::time::Duration {
 /// Particularly, seed #1 causes a message ordering which results
 /// in an overdraft, while seed #0 does not.
 fn main() {
-    for seed in 1..10 {
+    for seed in 1..100 {
         println!("--- seed --- {}", seed);
         let true_start_time = std::time::Instant::now();
         let simulation_duration = simulate(seed);
