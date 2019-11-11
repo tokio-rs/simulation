@@ -66,6 +66,23 @@ impl SocketHalf {
     pub(crate) fn connected(&self) -> bool {
         !self.tx.is_closed()
     }
+    /// Attempt to read any staged bytes into `dst`. Returns the number of bytes read, or None if
+    /// no bytes were staged.
+    fn read_staged(&mut self, dst: &mut [u8]) -> Option<usize> {
+        if let Some(mut bytes) = self.staged.take() {
+            debug_assert!(!bytes.is_empty(), "staged bytes should not be empty");
+            let to_write = std::cmp::min(dst.len(), bytes.len());
+            let b = bytes.split_to(to_write);
+            let mut b = b.into_buf();
+            b.copy_to_slice(&mut dst[..to_write]);
+            if !bytes.is_empty() {
+                self.staged.replace(bytes);
+            }
+            Some(to_write)
+        } else {
+            None
+        }
+    }
 }
 
 impl AsyncRead for SocketHalf {
@@ -76,18 +93,11 @@ impl AsyncRead for SocketHalf {
     ) -> Poll<io::Result<usize>> {
         span!(Level::TRACE, "AsyncRead::poll_read", "{:?}", self).in_scope(|| loop {
             trace!("attempting to read {} bytes", dst.len());
-            if let Some(mut bytes) = self.staged.take() {
-                debug_assert!(!bytes.is_empty(), "bytes should not be empty at this point");
-                let to_write = std::cmp::min(dst.len(), bytes.len());
-                let b = bytes.split_to(to_write);
-                let mut b = b.into_buf();
-                b.copy_to_slice(&mut dst[..to_write]);
-                if !bytes.is_empty() {
-                    self.staged.replace(bytes);
-                }
-                trace!("read {} bytes", to_write);
-                return Poll::Ready(Ok(to_write));
+            if let Some(bytes_read) = self.read_staged(dst) {
+                trace!("read {} bytes", bytes_read);
+                return Poll::Ready(Ok(bytes_read));
             }
+
             trace!("no bytes staged");
             let stream = Pin::new(&mut self.rx);
             match futures::ready!(stream.poll_next(cx)) {
@@ -117,13 +127,9 @@ impl AsyncWrite for SocketHalf {
             let send = self.tx.send(bytes);
             futures::pin_mut!(send);
             match futures::ready!(send.poll(cx)) {
-                Ok(()) => {
-                    return Poll::Ready(Ok(size));
-                }
-                Err(_) => {
-                    return Poll::Ready(Err(io::ErrorKind::BrokenPipe.into()));
-                }
-            };
+                Ok(()) => Poll::Ready(Ok(size)),
+                Err(_) => Poll::Ready(Err(io::ErrorKind::BrokenPipe.into())),
+            }
         })
     }
     fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), io::Error>> {

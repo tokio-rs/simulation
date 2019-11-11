@@ -75,8 +75,8 @@ mod add_origin {
             let set_uri = self.origin.clone().into_parts();
 
             // Update the URI parts, setting hte scheme and authority
-            uri.scheme = Some(set_uri.scheme.expect("expected scheme").clone());
-            uri.authority = Some(set_uri.authority.expect("expected authority").clone());
+            uri.scheme = Some(set_uri.scheme.expect("expected scheme"));
+            uri.authority = Some(set_uri.authority.expect("expected authority"));
 
             // Update the the request URI
             head.uri = http::Uri::from_parts(uri).expect("valid uri");
