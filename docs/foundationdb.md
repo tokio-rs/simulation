@@ -12,7 +12,8 @@ Each of these can be killed, which effectively halts processing. Processes are s
 not killed because it would immediately render the simulation useless. For that, a specific
 `canKillProcesses` is provided to check.
 
-### Actors
+### Fault Injection and Workloads
 
-FoundationDB seems to manage all state using actors, which is particularly interesting since these
-actors are also deterministic.
+FoundationDB seperates out fault injection from workloads, but the lines are a bit blurry. Generally
+fault injection seems to refer to probabilistically injecting faults at IO callsites. Workloads are more
+general, and can range from killing random nodes to generating transactions.
