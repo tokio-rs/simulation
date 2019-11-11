@@ -71,7 +71,8 @@ fn hyper_request_response() {
                 name: "simulation".into(),
             })
             .await
-            .unwrap().into_inner();
+            .unwrap()
+            .into_inner();
         assert_eq!(response.message, "Hello simulation!");
     });
 }
