@@ -24,12 +24,12 @@ tokio-net = "0.2.0-alpha.6"
 tokio-sync = "0.2.0-alpha.6"
 tokio-test = "0.2.0-alpha.6"
 tokio-timer = "0.3.0-alpha.6"
+tower-service = "0.3.0-alpha.2"
 tracing = "0.1.10"
 tracing-attributes = "0.1.5"
 tracing-futures = {version = "0.1.1", features = ["tokio-alpha"]}
 tracing-subscriber = "0.1.6"
 pin-project = "0.4.5"
-
 
 [build-dependencies]
 #tonic-build = { path = "../../hyperium/tonic/tonic-build" }
@@ -39,3 +39,4 @@ hyper = { version = "0.13.0-alpha.4", features = ["unstable-stream", "tcp"] }
 tonic = {git = "https://github.com/gardnervickers/tonic", branch = "simulation"}
 #tonic = { path = "../../hyperium/tonic/tonic"}
 prost = "0.5.0"
+http = "0.1"
