@@ -1,0 +1,38 @@
+syntax = "proto3";
+package bank;
+
+message BalanceQueryRequest {
+    int32 account_id = 1;
+}
+
+message BalanceQueryResponse {
+    int32 account_balance = 2;
+}
+
+message WithdrawRequest {
+    int32 account_id = 1;
+    int32 amount = 2;
+}
+
+message WithdrawResponse {
+    enum WithdrawStatus {
+        Success = 0;
+        Overdraft = 1;
+    }
+    WithdrawStatus status = 1;
+}
+
+message DepositRequest {
+    int32 account_id = 1;
+    int32 amount = 2;
+}
+
+message DepositResponse {
+    int32 new_balance = 1;
+}
+
+service Bank {
+    rpc BalanceQuery (BalanceQueryRequest) returns (BalanceQueryResponse);
+    rpc Withdraw (WithdrawRequest) returns (WithdrawResponse);
+    rpc Deposit (DepositRequest) returns (DepositResponse);
+}

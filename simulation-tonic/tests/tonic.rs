@@ -1,7 +1,7 @@
 use simulation::deterministic::DeterministicRuntime;
 use simulation::{Environment, TcpListener};
 use simulation_tonic::{AddOrigin, Connector};
-use std::net::{self, ToSocketAddrs};
+use std::net;
 use tonic::{transport::Server, Request, Response, Status};
 use tower_service::Service;
 
@@ -59,7 +59,7 @@ fn hyper_request_response() {
             hyper::client::conn::Builder::new().http2_only(true).clone(),
         );
         let svc = connector
-            .call("127.0.0.1:9092".to_socket_addrs().unwrap().next().unwrap())
+            .call("127.0.0.1:9092".parse().unwrap())
             .await
             .unwrap();
         let mut client = GreeterClient::new(AddOrigin::new(
@@ -73,6 +73,7 @@ fn hyper_request_response() {
             .await
             .unwrap()
             .into_inner();
+
         assert_eq!(response.message, "Hello simulation!");
     });
 }

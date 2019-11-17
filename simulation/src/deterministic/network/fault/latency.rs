@@ -46,14 +46,17 @@ impl LatencyFaultInjector {
         }
     }
 
-    /// Consumes this fault injector to
+    /// Consumes this fault injector and begins injecting randomized latency into both client and server connections..
     pub async fn run(self) {
         loop {
             // every second, adjust latencies across all connections.
             self.time_handle
                 .delay_from(time::Duration::from_secs(1))
                 .await;
-            self.inject_latency()
+            if self.random_handle.should_fault(0.01) {
+                self.inject_latency();
+            }
+
         }
     }
 
