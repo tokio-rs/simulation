@@ -40,8 +40,8 @@ impl LatencyFaultInjector {
             random_handle,
             time_handle,
             config: LatencyFaultInjectorConfig {
-                client_latency_range: time::Duration::from_secs(0)..time::Duration::from_secs(10),
-                server_latency_range: time::Duration::from_secs(0)..time::Duration::from_secs(10),
+                client_latency_range: time::Duration::from_secs(0)..time::Duration::from_secs(100),
+                server_latency_range: time::Duration::from_secs(0)..time::Duration::from_secs(100),
             },
         }
     }
@@ -53,7 +53,7 @@ impl LatencyFaultInjector {
             self.time_handle
                 .delay_from(time::Duration::from_secs(1))
                 .await;
-            if self.random_handle.should_fault(0.01) {
+            if self.random_handle.should_fault(0.1) {
                 self.inject_latency();
             }
         }
