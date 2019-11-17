@@ -86,7 +86,6 @@ impl SocketHalf {
 }
 
 impl AsyncRead for SocketHalf {
-
     fn poll_read(
         mut self: Pin<&mut Self>,
         cx: &mut Context<'_>,
