@@ -178,6 +178,7 @@ fn run_bank_simulation(seed: u64) {
 }
 
 #[test]
+#[should_panic]
 fn test() {
     println!("starting test");
     for seed in 100..1000 {
