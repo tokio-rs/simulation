@@ -17,14 +17,15 @@ impl<T> Connector<T> {
     }
 }
 
+type ServiceFuture<R, E> = Pin<Box<dyn Future<Output = Result<R, E>> + Send + 'static>>;
+
 impl<T> tower_service::Service<net::SocketAddr> for Connector<T>
 where
     T: Environment + Send + Sync + 'static,
 {
     type Response = T::TcpStream;
     type Error = io::Error;
-    type Future =
-        Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>> + Send + 'static>>;
+    type Future = ServiceFuture<Self::Response, Self::Error>;
 
     fn poll_ready(&mut self, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
         Ok(()).into()

@@ -124,10 +124,16 @@ where
     }
 
     async fn query_balance(&mut self, account_id: i32) -> i32 {
-
         loop {
             let request = BalanceQueryRequest { account_id };
-            match self.handle.timeout(self.inner.balance_query(request), time::Duration::from_secs(5)).await {
+            match self
+                .handle
+                .timeout(
+                    self.inner.balance_query(request),
+                    time::Duration::from_secs(5),
+                )
+                .await
+            {
                 Ok(Ok(response)) => return response.get_ref().account_balance,
                 Ok(Err(e)) => panic!("server error: {}", e),
                 Err(_) => {
@@ -175,7 +181,7 @@ fn run_bank_simulation(seed: u64) {
 #[should_panic]
 fn test() {
     println!("starting test");
-    for seed in 0..100 {
+    for seed in 0..1000 {
         println!("attempting seed {}", seed);
         run_bank_simulation(seed);
     }

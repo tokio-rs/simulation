@@ -56,7 +56,6 @@ impl LatencyFaultInjector {
             if self.random_handle.should_fault(0.01) {
                 self.inject_latency();
             }
-
         }
     }
 

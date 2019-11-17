@@ -86,11 +86,14 @@ impl SocketHalf {
 }
 
 impl AsyncRead for SocketHalf {
+
     fn poll_read(
         mut self: Pin<&mut Self>,
         cx: &mut Context<'_>,
         dst: &mut [u8],
     ) -> Poll<io::Result<usize>> {
+        // span! macro seems to trip up clippy here
+        #![allow(clippy::cognitive_complexity)]
         span!(Level::TRACE, "AsyncRead::poll_read", "{:?}", self).in_scope(|| loop {
             trace!("attempting to read {} bytes", dst.len());
             if let Some(bytes_read) = self.read_staged(dst) {
