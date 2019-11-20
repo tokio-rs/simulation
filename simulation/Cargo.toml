@@ -18,17 +18,14 @@ bytes = "0.4.12"
 futures-preview = { version = "0.3.0-alpha.19", features = ["async-await"] }
 rand = { version = "0.7.2", features = ["small_rng"] }
 rand_distr = "0.2.2"
-tokio = { version = "0.2.0-alpha.6", features = ["sync"] }
+tokio = { version = "0.2.0-alpha.6" }
 tokio-executor = "0.2.0-alpha.6"
 tokio-net = "0.2.0-alpha.6"
-tokio-sync = "0.2.0-alpha.6"
 
 tokio-timer = "0.3.0-alpha.6"
-tower-service = "0.3.0-alpha.2"
 tracing = "0.1.10"
 tracing-attributes = "0.1.5"
 tracing-futures = {version = "0.1.1", features = ["tokio-alpha"]}
-pin-project = "0.4.5"
 
 [dev-dependencies]
 tokio-test = "0.2.0-alpha.6"
