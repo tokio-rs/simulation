@@ -4,7 +4,7 @@
 //!
 //! Simulation is an abstraction over [Tokio], allowing application developers to write
 //! applications which are generic over sources of nondeterminism. Additionally, Simulation
-//! provides deterministic analogues to time, scheduling, network and IO.
+//! provides deterministic analogues to time, scheduling, network and eventually disk IO.
 //!
 //! # Scheduling and Time
 //!
@@ -15,11 +15,44 @@
 //! progress. Applications which rely on timeouts can then be tested in a fraction of the time it
 //! would normally take to test a particular execution ordering.
 //!
+//! This can be used to naturally express ordering between tasks
+//!
+//! ```rust
+//!    use simulation::{Environment};
+//!    #[test]
+//!    fn ordering() {
+//!        let mut runtime = DeterministicRuntime::new().unwrap();
+//!        let handle = runtime.localhost_handle();
+//!        runtime.block_on(async {
+//!            let delay1 = handle.delay_from(Duration::from_secs(10));
+//!            let delay2 = handle.delay_from(Duration::from_secs(30));
+//!
+//!            let handle1 = handle.clone();
+//!            let completed_at1 = crate::spawn_with_result(&handle1.clone(), async move {
+//!                delay1.await;
+//!                handle1.now()
+//!            })
+//!            .await;
+//!
+//!            let handle2 = handle.clone();
+//!            let completed_at2 = crate::spawn_with_result(&handle2.clone(), async move {
+//!                delay2.await;
+//!                handle2.now()
+//!            })
+//!            .await;
+//!            assert!(completed_at1 < completed_at2)
+//!        });
+//!    }
+//! ```
+//!
 //! # Network
 //!
 //! Simulation includes an in-memory network. Applications can use `Environment::bind` and `Environment::connect`
 //! to create in-memory connections between components. The in-memory connections will automatically have delays
 //! and disconnect faults injected, dependent on an initial seed value.
+//!
+//! [`DeterministicRuntime`] supports both a [`DeterministicRuntime::localhost_handle`] as well as creating a handle
+//! scoped to a particular [`std::net:IpAddr`] with [`DeterministicRuntime::handle`].
 //!
 //! # Faults
 //!
@@ -34,7 +67,13 @@
 //! Once the error is fixed, the seed value can be used to setup a regression test to ensure that the
 //! issue stays fixed.
 //!
+//! Fault injection is handled by spawned tasks. Currently there is one fault injector which will inject
+//! determinstic latency changes to socket read/write sides based on the initial seed value passed to
+//! [`DeterministicRuntime::new_with_seed`]. Launching the fault injector involves spawning it at startup.
+//!
 //! # Example
+//! The following example demonstrates a simple client server app which has latency faults injected.
+//! For more involved examples, see the tests directory in either `simulation` or `simulation-tonic`.
 //!
 //! ```rust
 //!    use simulation::{Environment, TcpListener};
@@ -101,6 +140,7 @@
 //!        let mut runtime = simulation::deterministic::DeterministicRuntime::new_with_seed(1).unwrap();
 //!        let handle = runtime.handle();
 //!        runtime.block_on(async {
+//!            handle.spawn(runtime.latency_fault().run());
 //!            let bind_addr: net::SocketAddr = "127.0.0.1:8080".parse().unwrap();
 //!            let server = server(handle.clone(), bind_addr);
 //!            handle.spawn(async move {
@@ -140,9 +180,16 @@ pub enum Error {
 pub trait Network {
     type TcpStream: TcpStream + Send + 'static + Unpin;
     type TcpListener: TcpListener + Send + 'static + Unpin;
+
+    /// Binds and returns a listener which can be used to listen for new connections.
     async fn bind<A>(&self, addr: A) -> io::Result<Self::TcpListener>
     where
         A: Into<net::SocketAddr> + Send + Sync;
+
+    /// Connects to the specified addr, returning a [`TcpStream`] which can be
+    /// used to send and receive bytes.
+    ///
+    /// [`TcpStream`]:`TcpStream`
     async fn connect<A>(&self, addr: A) -> io::Result<Self::TcpStream>
     where
         A: Into<net::SocketAddr> + Send + Sync;
@@ -153,6 +200,7 @@ pub trait Environment: Unpin + Sized + Clone + Send + 'static {
     type TcpStream: TcpStream + Send + 'static + Unpin;
     type TcpListener: TcpListener + Send + 'static + Unpin;
 
+    /// Spawn a task on the runtime provided by this [`Environment`].
     fn spawn<F>(&self, future: F)
     where
         F: Future<Output = ()> + Send + 'static;
@@ -168,9 +216,15 @@ pub trait Environment: Unpin + Sized + Clone + Send + 'static {
     /// Creates a timeout future which which will execute T until the timeout elapses.
     fn timeout<T>(&self, value: T, timeout: time::Duration) -> tokio_timer::Timeout<T>;
 
+    /// Binds and returns a listener which can be used to listen for new connections.
     async fn bind<A>(&self, addr: A) -> io::Result<Self::TcpListener>
     where
         A: Into<net::SocketAddr> + Send + Sync;
+
+    /// Connects to the specified addr, returning a [`TcpStream`] which can be
+    /// used to send and receive bytes.
+    ///
+    /// [`TcpStream`]:`TcpStream`
     async fn connect<A>(&self, addr: A) -> io::Result<Self::TcpStream>
     where
         A: Into<net::SocketAddr> + Send + Sync;
