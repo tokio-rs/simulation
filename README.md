@@ -1,14 +1,11 @@
-<p align="center">
-    <img alt="Simulation Logo" src="docs/logo.svg">
-</p>
-
+# simulation
 
 The goal of Simulation is to provide a set of low level components which can be
 used to write applications amenable to [FoundationDB style simulation testing](https://apple.github.io/foundationdb/testing.html).
 
 Simulation is an abstraction over [Tokio], allowing application developers to write
 applications which are generic over sources of nondeterminism. Additionally, Simulation
-provides deterministic analogues to time, scheduling, network and IO.
+provides deterministic analogues to time, scheduling, network and eventually disk IO.
 
 ## Scheduling and Time
 
@@ -19,11 +16,44 @@ When time is advanced, it is advanced instantly to a value which allows the exec
 progress. Applications which rely on timeouts can then be tested in a fraction of the time it
 would normally take to test a particular execution ordering.
 
+This can be used to naturally express ordering between tasks
+
+```rust
+   use simulation::{Environment};
+   #[test]
+   fn ordering() {
+       let mut runtime = DeterministicRuntime::new().unwrap();
+       let handle = runtime.localhost_handle();
+       runtime.block_on(async {
+           let delay1 = handle.delay_from(Duration::from_secs(10));
+           let delay2 = handle.delay_from(Duration::from_secs(30));
+
+           let handle1 = handle.clone();
+           let completed_at1 = crate::spawn_with_result(&handle1.clone(), async move {
+               delay1.await;
+               handle1.now()
+           })
+           .await;
+
+           let handle2 = handle.clone();
+           let completed_at2 = crate::spawn_with_result(&handle2.clone(), async move {
+               delay2.await;
+               handle2.now()
+           })
+           .await;
+           assert!(completed_at1 < completed_at2)
+       });
+   }
+```
+
 ## Network
 
 Simulation includes an in-memory network. Applications can use `Environment::bind` and `Environment::connect`
 to create in-memory connections between components. The in-memory connections will automatically have delays
 and disconnect faults injected, dependent on an initial seed value.
+
+[`DeterministicRuntime`] supports both a [`DeterministicRuntime::localhost_handle`] as well as creating a handle
+scoped to a particular [`std::net:IpAddr`] with [`DeterministicRuntime::handle`].
 
 ## Faults
 
@@ -38,7 +68,12 @@ failing execution ordering, developers can use the seed value to debug and fix t
 Once the error is fixed, the seed value can be used to setup a regression test to ensure that the
 issue stays fixed.
 
+Fault injection is handled by spawned tasks. Currently there is one fault injector which will inject
+determinstic latency changes to socket read/write sides based on the initial seed value passed to
+[`DeterministicRuntime::new_with_seed`]. Launching the fault injector involves spawning it at startup.
+
 ## Example
+The following example demonstrates a simple client server app which has latency faults injected.
 
 ```rust
    use simulation::{Environment, TcpListener};
@@ -105,6 +140,7 @@ issue stays fixed.
        let mut runtime = simulation::deterministic::DeterministicRuntime::new_with_seed(1).unwrap();
        let handle = runtime.handle();
        runtime.block_on(async {
+           handle.spawn(runtime.latency_fault().run());
            let bind_addr: net::SocketAddr = "127.0.0.1:8080".parse().unwrap();
            let server = server(handle.clone(), bind_addr);
            handle.spawn(async move {

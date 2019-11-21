@@ -57,8 +57,10 @@ where
 
 fn main() {
     let mut runtime = simulation::deterministic::DeterministicRuntime::new_with_seed(1).unwrap();
-    let handle = runtime.handle();
+    let handle = runtime.localhost_handle();
+    let latency_fault = runtime.latency_fault();
     runtime.block_on(async {
+        handle.spawn(latency_fault.run());
         let bind_addr: net::SocketAddr = "127.0.0.1:8080".parse().unwrap();
         let server = server(handle.clone(), bind_addr);
         handle.spawn(async move {

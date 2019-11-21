@@ -116,7 +116,6 @@ where
             _ => unreachable!(),
         }
     }
-    println!("BankingServer connection closed");
 }
 
 impl<E> BankingServer<E>
@@ -192,9 +191,11 @@ fn simulate(seed: u64) -> std::time::Duration {
     // A SingleThreaded runtime can be swapped in at will.
     // let mut runtime = SingleThreadedRuntime::new().unwrap();
     let mut runtime = DeterministicRuntime::new_with_seed(seed).unwrap();
-    let handle = runtime.handle();
+    let handle = runtime.localhost_handle();
     let start_time = handle.now();
+    let latency_fault = runtime.latency_fault();
     runtime.block_on(async {
+        handle.spawn(latency_fault.run());
         let server_handle = handle.clone();
         let banking_server = BankingServer::new(server_handle.clone(), 100);
         let mut server_fut = simulation::spawn_with_result(&handle, async move {
@@ -229,16 +230,16 @@ fn simulate(seed: u64) -> std::time::Duration {
 /// Run our simulated bank with various seeds from 1..10
 /// to find a seed which causes an overdraft.
 ///
-/// Particularly, seed #4 causes a message ordering which results
-/// in an overdraft, while seed 0-3 do not.
+/// Particularly, seed #14 causes a message ordering which results
+/// in an overdraft, while seed 0-13 do not.
 fn main() {
-    for seed in 0..10 {
+    for seed in 0..100 {
         println!("--- seed --- {}", seed);
         let true_start_time = std::time::Instant::now();
         let simulation_duration = simulate(seed);
         let true_duration = std::time::Instant::now() - true_start_time;
         println!(
-            "real-time: {:?}\n simulated-time: {:?}",
+            "real-time: {:?}\nsimulated-time: {:?}",
             true_duration, simulation_duration
         )
     }
