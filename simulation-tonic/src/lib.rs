@@ -3,6 +3,7 @@ use futures::{Future, Poll};
 use simulation::Environment;
 use std::{io, net, pin::Pin, task::Context};
 
+#[derive(Clone)]
 pub struct Connector<T> {
     inner: T,
 }
@@ -43,7 +44,7 @@ mod add_origin {
     use tower_service::Service;
 
     // From tonic/src/transport/service/add_origin.rs
-    #[derive(Debug)]
+    #[derive(Debug, Clone)]
     pub struct AddOrigin<T> {
         inner: T,
         origin: Uri,

@@ -152,7 +152,7 @@ impl Inner {
 
     /// Clog all new connections from one IP to another. If there are any existing connections, they
     /// are also clogged.
-    fn clog_connection(&mut self, clog: CloggedConnection) {
+    pub(crate) fn clog_connection(&mut self, clog: CloggedConnection) {
         trace!("clogging connection {:?}", clog);
         let clog_source = clog.source();
         let clog_dest = clog.dest();
@@ -166,9 +166,13 @@ impl Inner {
         }
     }
 
+    pub(crate) fn clogged_connections(&self) -> collections::HashSet<CloggedConnection> {
+        self.clogged.clone()
+    }
+
     /// Unclog all new connection between two IP addresses. If there are any existing connections which
     /// are clogged, they are unclogged.
-    fn unclog_connection(&mut self, unclog: CloggedConnection) {
+    pub(crate) fn unclog_connection(&mut self, unclog: CloggedConnection) {
         trace!("unclogging connection {:?}", unclog);
         let clog_source = unclog.source();
         let clog_dest = unclog.dest();

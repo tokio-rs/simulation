@@ -11,6 +11,9 @@ http = "0.1"
 prost = "0.5.0"
 simulation = {path = "../simulation"}
 tower-service = "0.3.0-alpha.2"
+tower = "0.3.0-alpha.2"
+tonic = {git = "https://github.com/gardnervickers/tonic", branch = "simulation"}
+tower-reconnect = "0.3.0-alpha.2"
 
 
 [build-dependencies]

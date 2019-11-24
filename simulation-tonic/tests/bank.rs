@@ -11,10 +11,22 @@ use bank::{
     BalanceQueryRequest, BalanceQueryResponse, DepositRequest, DepositResponse, WithdrawRequest,
     WithdrawResponse,
 };
+use simulation_tonic::AddOrigin;
 use std::{collections, net, time};
 use tokio::sync::Mutex;
 use tonic::{Request, Response, Status};
-use tower_service::Service;
+
+#[derive(Debug)]
+enum Error {
+    Rpc(Status),
+    Overdraft,
+}
+
+impl From<Status> for Error {
+    fn from(e: Status) -> Self {
+        Error::Rpc(e)
+    }
+}
 
 #[derive(Default)]
 struct BankHandler {
@@ -88,79 +100,115 @@ where
     let bind_addr: net::SocketAddr = "127.0.0.1:9092".parse().unwrap();
     let listener = env.bind(bind_addr).await.unwrap();
     let listener = listener.into_stream();
+    let service = BankServer::new(bank_handler);
     tonic::transport::Server::builder()
-        .add_service(BankServer::new(bank_handler))
+        .add_service(service)
         .serve_from_stream(listener)
         .await
         .unwrap();
 }
 
-struct Client<E> {
-    handle: E,
+struct Client<E>
+where
+    E: Environment + Send + Sync + 'static,
+{
     inner: BankClient<
-        simulation_tonic::AddOrigin<hyper::client::conn::SendRequest<tonic::body::BoxBody>>,
+        tower::timeout::Timeout<
+            AddOrigin<
+                tower_reconnect::Reconnect<
+                    hyper::client::service::Connect<
+                        simulation_tonic::Connector<E>,
+                        tonic::body::BoxBody,
+                        std::net::SocketAddr,
+                    >,
+                    std::net::SocketAddr,
+                >,
+            >,
+        >,
     >,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct RetryPolicy {}
+impl<Req, Resp, E> tower::retry::Policy<Req, Resp, E> for RetryPolicy {
+    type Future = Box<dyn futures::Future<Output = Self> + Unpin + 'static>;
+    fn retry(&self, req: &Req, result: Result<&Resp, &E>) -> Option<Self::Future> {
+        unimplemented!()
+    }
+    fn clone_request(&self, req: &Req) -> Option<Req> {
+        unimplemented!()
+    }
 }
 
 impl<E> Client<E>
 where
-    E: Environment + Send + Sync + 'static,
+    E: Environment + Send + Sync + 'static + Clone,
 {
     async fn new(handle: E, addr: net::SocketAddr) -> Self {
         let connector = simulation_tonic::Connector::new(handle.clone());
-        let mut connector = hyper::client::service::Connect::new(
-            connector,
-            hyper::client::conn::Builder::new().http2_only(true).clone(),
-        );
-        let svc = connector.call(addr).await.unwrap();
-        let client = BankClient::new(simulation_tonic::AddOrigin::new(
-            svc,
+        let connection = hyper::client::conn::Builder::new().http2_only(true).clone();
+        let service = hyper::client::service::Connect::new(connector, connection);
+        let service = tower_reconnect::Reconnect::new(service, addr);
+        let service = simulation_tonic::AddOrigin::new(
+            service,
             hyper::Uri::from_static("http://127.0.0.1:9092"),
-        ));
-        Client {
-            handle: handle.clone(),
-            inner: client,
-        }
+        );
+        let svc = tower::ServiceBuilder::new()
+            .timeout(time::Duration::from_secs(5))
+            .service(service);
+        let client = BankClient::new(svc);
+        Client { inner: client }
     }
 
-    async fn query_balance(&mut self, account_id: i32) -> i32 {
-        loop {
-            let request = BalanceQueryRequest { account_id };
-            match self
-                .handle
-                .timeout(
-                    self.inner.balance_query(request),
-                    time::Duration::from_secs(5),
-                )
-                .await
-            {
-                Ok(Ok(response)) => return response.get_ref().account_balance,
-                Ok(Err(e)) => panic!("server error: {}", e),
-                Err(_) => {
-                    self.handle.delay_from(time::Duration::from_secs(10)).await;
-                }
-            }
-        }
+    async fn query_balance(&mut self, account_id: i32) -> Result<i32, Error> {
+        self.inner
+            .balance_query(BalanceQueryRequest { account_id })
+            .await
+            .map(|r| r.get_ref().account_balance)
+            .map_err(Into::into)
     }
 
-    async fn deposit(&mut self, account_id: i32, amount: i32) -> i32 {
-        loop {
-            let request = DepositRequest { account_id, amount };
-            match self
-                .handle
-                .timeout(self.inner.deposit(request), time::Duration::from_secs(10))
-                .await
-            {
-                Ok(Ok(response)) => {
-                    return response.get_ref().new_balance;
-                }
-                Ok(Err(e)) => panic!("server error: {}", e),
-                Err(_) => {
-                    // after a timeout, wait for a bit and try to resend
-                    self.handle.delay_from(time::Duration::from_secs(1)).await;
+    async fn deposit(&mut self, account_id: i32, amount: i32) -> Result<i32, Error> {
+        self.inner
+            .deposit(DepositRequest { account_id, amount })
+            .await
+            .map(|r| r.get_ref().new_balance)
+            .map_err(Into::into)
+    }
+
+    async fn withdraw(&mut self, account_id: i32, amount: i32) -> Result<(), Error> {
+        let request = WithdrawRequest { account_id, amount };
+        match self.inner.withdraw(request).await {
+            Ok(response) => {
+                if response.get_ref().status == 0 {
+                    Ok(())
+                } else {
+                    Err(Error::Overdraft)
                 }
             }
+            Err(e) => Err(e.into()),
         }
+    }
+}
+// Creates a workload which periodically withdraws money from the provided account.
+async fn withdraw_worker<E>(
+    handle: E,
+    server_addr: net::SocketAddr,
+    account_id: i32,
+    period: time::Duration,
+) -> Result<(), Error>
+where
+    E: Environment + Send + Sync + 'static,
+{
+    let mut client = Client::new(handle.clone(), server_addr).await;
+    loop {
+        let balance = client.query_balance(account_id).await?;
+        if balance > 0 {
+            client.withdraw(account_id, 1).await?;
+        } else {
+            return Ok(());
+        }
+        handle.delay_from(period).await;
     }
 }
 
@@ -170,19 +218,25 @@ fn run_bank_simulation(seed: u64) {
     let handle = runtime.localhost_handle();
     runtime.block_on(async {
         handle.spawn(latency_fault.run());
+        let server_addr: net::SocketAddr = "127.0.0.1:9092".parse().unwrap();
         handle.spawn(start_server(handle.clone()));
-        let mut client = Client::new(handle.clone(), "127.0.0.1:9092".parse().unwrap()).await;
-        client.deposit(1, 100).await;
-        assert_eq!(client.query_balance(1).await, 100);
+        let mut client = Client::new(handle.clone(), server_addr).await;
+        client.deposit(1, 100).await.unwrap();
+        if let Err(e) = futures::future::try_join(
+            withdraw_worker(handle.clone(), server_addr, 1, time::Duration::from_secs(1)),
+            withdraw_worker(handle.clone(), server_addr, 1, time::Duration::from_secs(1)),
+        )
+        .await
+        {
+            println!("Error running simulation: {:?}", e);
+        }
     });
 }
 
 #[test]
-#[should_panic]
 fn test() {
-    println!("starting test");
-    for seed in 100..1000 {
-        println!("attempting seed {}", seed);
+    for seed in 0..100 {
+        println!("-- seed {} --", seed);
         run_bank_simulation(seed);
     }
 }

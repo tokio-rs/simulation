@@ -49,6 +49,10 @@ impl LatencyFaultInjector {
     /// Consumes this fault injector and begins injecting randomized latency into both client and server connections..
     pub async fn run(self) {
         loop {
+            let min_interval = time::Duration::from_secs(1);
+            let max_interval = time::Duration::from_secs(5);
+            let wait_interval = self.random_handle.gen_range(min_interval..max_interval);
+            self.time_handle.delay_from(wait_interval).await;
             // every second, adjust latencies across all connections.
             self.time_handle
                 .delay_from(time::Duration::from_secs(1))
@@ -56,6 +60,32 @@ impl LatencyFaultInjector {
             if self.random_handle.should_fault(0.1) {
                 self.inject_latency();
             }
+            if self.random_handle.should_fault(0.1) {
+                self.unclog_clog();
+            }
+        }
+    }
+
+    fn unclog_clog(&self) {
+        let mut lock = self.inner.lock().unwrap();
+        let clogged_connections = lock.clogged_connections();
+        for clogged in clogged_connections {
+            if self.random_handle.should_fault(0.1) {
+                lock.unclog_connection(clogged);
+            }
+        }
+
+        let mut to_clog = vec![];
+        for connection in &lock.connections {
+            if self.random_handle.should_fault(0.01) {
+                to_clog.push(super::CloggedConnection::new(
+                    connection.source.ip(),
+                    connection.dest.ip(),
+                ));
+            }
+        }
+        for clog in to_clog {
+            lock.clog_connection(clog)
         }
     }
 
