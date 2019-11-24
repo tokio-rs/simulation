@@ -1,4 +1,4 @@
-pub use add_origin::AddOrigin;
+pub use add_origin::{AddOrigin, AddOriginLayer};
 use futures::{Future, Poll};
 use simulation::Environment;
 use std::{io, net, pin::Pin, task::Context};
@@ -42,6 +42,22 @@ mod add_origin {
     use http::{Request, Uri};
     use std::task::{Context, Poll};
     use tower_service::Service;
+
+    #[derive(Debug, Clone)]
+    pub struct AddOriginLayer(Uri);
+
+    impl AddOriginLayer {
+        pub fn new(uri: Uri) -> Self {
+            AddOriginLayer(uri)
+        }
+    }
+
+    impl<S> tower::layer::Layer<S> for AddOriginLayer {
+        type Service = AddOrigin<S>;
+        fn layer(&self, service: S) -> Self::Service {
+            AddOrigin::new(service, self.0.clone())
+        }
+    }
 
     // From tonic/src/transport/service/add_origin.rs
     #[derive(Debug, Clone)]
