@@ -224,8 +224,16 @@ fn run_bank_simulation(seed: u64) {
 }
 
 fn main() {
-    for seed in 0..5000 {
+    let args: Vec<String> = std::env::args().collect();
+    if args.len() == 2 {
+        let seed = args[1].parse().unwrap();
         println!("-- seed {} --", seed);
         run_bank_simulation(seed);
+    } else {
+        for seed in 0..5000 {
+            println!("-- seed {} --", seed);
+            run_bank_simulation(seed);
+        }
     }
+
 }
