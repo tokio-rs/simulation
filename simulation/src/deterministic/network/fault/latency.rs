@@ -71,6 +71,7 @@ impl LatencyFaultInjector {
         let clogged_connections = lock.clogged_connections();
         for clogged in clogged_connections {
             if self.random_handle.should_fault(0.1) {
+                tracing::debug!("unclogging {:?}", clogged);
                 lock.unclog_connection(clogged);
             }
         }
@@ -85,6 +86,7 @@ impl LatencyFaultInjector {
             }
         }
         for clog in to_clog {
+            tracing::debug!("clogging {:?}", clog);
             lock.clog_connection(clog)
         }
     }
