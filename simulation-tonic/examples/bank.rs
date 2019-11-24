@@ -107,25 +107,14 @@ where
         .unwrap();
 }
 
+type Connect<E> = hyper::client::service::Connect<simulation_tonic::Connector<E>, tonic::body::BoxBody, net::SocketAddr>;
+type Layer<E> = tower::timeout::Timeout<tower_reconnect::Reconnect<Connect<E>, std::net::SocketAddr>>;
 struct Client<E>
 where
     E: Environment + Send + Sync + 'static,
 {
     handle: E,
-    inner: BankClient<
-        AddOrigin<
-            tower::timeout::Timeout<
-                    tower_reconnect::Reconnect<
-                        hyper::client::service::Connect<
-                            simulation_tonic::Connector<E>,
-                            tonic::body::BoxBody,
-                            std::net::SocketAddr,
-                        >,
-                        std::net::SocketAddr,
-                    >,
-            >,
-        >,
-    >,
+    inner: BankClient<AddOrigin<Layer<E>>>,
 }
 
 impl<E> Client<E>
@@ -145,7 +134,7 @@ where
             .timeout(time::Duration::from_secs(5))
             .service(service);
         let client = BankClient::new(svc);
-        Client { inner: client, handle: handle.clone() }
+        Client { inner: client, handle }
     }
 
     async fn query_balance(&mut self, account_id: i32) -> Result<i32, Error> {
@@ -223,8 +212,8 @@ fn run_bank_simulation(seed: u64) {
         let mut client = Client::new(handle.clone(), server_addr).await;
         client.deposit(1, 100).await.unwrap();
         if let Err(e) = futures::future::try_join(
-            withdraw_worker(handle.clone(), server_addr, 1, time::Duration::from_secs(1)),
-            withdraw_worker(handle.clone(), server_addr, 1, time::Duration::from_secs(1)),
+            withdraw_worker(handle.clone(), server_addr, 1, time::Duration::from_millis(10)),
+            withdraw_worker(handle.clone(), server_addr, 1, time::Duration::from_millis(5)),
         )
         .await
         {
@@ -234,9 +223,8 @@ fn run_bank_simulation(seed: u64) {
     println!("simulation duration: {:?}", handle.now() - start_time);
 }
 
-#[test]
-fn test() {
-    for seed in 0..5 {
+fn main() {
+    for seed in 0..5000 {
         println!("-- seed {} --", seed);
         run_bank_simulation(seed);
     }
