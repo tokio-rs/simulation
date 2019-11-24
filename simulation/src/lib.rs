@@ -157,7 +157,7 @@
 //! [Timeout]:[tokio_timer::Timeout]
 use async_trait::async_trait;
 use futures::{Future, FutureExt, Stream};
-use std::{io, net, pin::Pin, time};
+use std::{io, net, fmt, error, pin::Pin, time};
 use tokio::io::{AsyncRead, AsyncWrite};
 
 pub mod deterministic;
@@ -174,6 +174,26 @@ pub enum Error {
     CurrentThreadRun {
         source: tokio_executor::current_thread::RunError,
     },
+}
+
+impl fmt::Display for Error {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Error::Spawn { source } => write!(f, "Spawn error: {:?}", source),
+            Error::RuntimeBuild { source } => write!(f, "Construction error: {:?}", source),
+            Error::CurrentThreadRun { source } => write!(f, "Error: {:?}", source),
+        }
+    }
+}
+
+impl error::Error for Error {
+    fn source(&self) -> Option<&(dyn error::Error + 'static)> { 
+        match self {
+            Error::Spawn { source } => Some(source),
+            Error::RuntimeBuild { source } => Some(source),
+            Error::CurrentThreadRun { source } => Some(source),
+        }
+     }
 }
 
 #[async_trait]
