@@ -1,7 +1,10 @@
 use futures::{SinkExt, StreamExt};
-use simulation::{Environment, TcpListener};
-use std::{io, net, time};
+use simulation::{deterministic::DeterministicRuntime, Environment, TcpListener};
+use std::{net::{self, IpAddr, Ipv4Addr, SocketAddr}, time};
 use tokio::codec::{Framed, LinesCodec};
+
+type Err = Box<dyn std::error::Error + Send + Sync + 'static>;
+
 /// Start a client request handler which will write greetings to clients.
 async fn handle_request<E>(
     env: E,
@@ -20,7 +23,7 @@ async fn handle_request<E>(
 }
 
 /// Start a server which will bind to the provided addr and repyl to clients.
-async fn server<E>(env: E, addr: net::SocketAddr) -> Result<(), io::Error>
+async fn server<E>(env: E, addr: net::SocketAddr) -> Result<(), Err>
 where
     E: Environment,
 {
@@ -34,7 +37,7 @@ where
 }
 
 /// Create a client which will read a message from the server
-async fn client<E>(env: E, addr: net::SocketAddr) -> Result<(), io::Error>
+async fn client<E>(env: E, addr: net::SocketAddr) -> Result<(), Err>
 where
     E: Environment,
 {
@@ -46,7 +49,10 @@ where
             }
             Ok(conn) => {
                 let mut transport = Framed::new(conn, LinesCodec::new());
-                let result = transport.next().await.unwrap().unwrap();
+                let result = match transport.next().await {
+                    Some(res) => res,
+                    None => panic!("Missing next frame in transport, this is a bug")
+                };
                 assert_eq!(result, "Hello World!");
                 println!("Success!");
                 return Ok(());
@@ -55,17 +61,20 @@ where
     }
 }
 
-fn main() {
-    let mut runtime = simulation::deterministic::DeterministicRuntime::new_with_seed(1).unwrap();
-    let handle = runtime.localhost_handle();
+fn main() -> Result<(), Err> {
+    let mut runtime = DeterministicRuntime::new_with_seed(1)?;
+    let handle = runtime.handle(IpAddr::V4(Ipv4Addr::LOCALHOST));
     let latency_fault = runtime.latency_fault();
+
+    let addr: SocketAddr = "127.0.0.1:8080".parse()?;
     runtime.block_on(async {
         handle.spawn(latency_fault.run());
-        let bind_addr: net::SocketAddr = "127.0.0.1:8080".parse().unwrap();
-        let server = server(handle.clone(), bind_addr);
+        let server = server(handle.clone(), addr);
         handle.spawn(async move {
-            server.await.unwrap();
+            server.await.unwrap()
         });
-        client(handle, bind_addr).await.unwrap();
-    })
+        client(handle, addr).await.unwrap();
+    });
+
+    Ok(())
 }
