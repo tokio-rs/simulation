@@ -53,7 +53,7 @@ where
                     Some(res) => res,
                     None => panic!("Missing next frame in transport, this is a bug")
                 };
-                assert_eq!(result, "Hello World!");
+                assert_eq!(result.unwrap(), "Hello World!");
                 println!("Success!");
                 return Ok(());
             }
