@@ -1,3 +1,6 @@
+# Note
+The Simulation library is being refactored to integrate more directly with Tokio. Currently, Simulation is not compatible with Tokio 0.2.x. As a result, it's recommended that users wait for a future release of Simulation. The issue tracking Tokio integration progress can be found here https://github.com/tokio-rs/tokio/issues/1845. 
+
 # simulation
 
 The goal of Simulation is to provide a set of low level components which can be
