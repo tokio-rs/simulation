@@ -1,8 +1,20 @@
 //! Simulation state for a logical machine in a simulation.
 use crate::tcp::{TcpListener, TcpListenerHandle, TcpStream, TcpStreamHandle};
-use std::{collections, io, net, num, string};
+use std::future::Future;
+use std::{collections, io, net, num, pin::Pin, string};
+
+/// LogicalMachineId is a token used to tie spawned tasks to a particular logical machine.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+pub struct LogicalMachineId(usize);
+impl LogicalMachineId {
+    pub(crate) fn new(id: usize) -> Self {
+        Self(id)
+    }
+}
+
 #[derive(Debug)]
 pub(crate) struct LogicalMachine {
+    id: LogicalMachineId,
     hostname: String,
     ipaddr: net::IpAddr,
     tags: collections::HashMap<String, String>,
@@ -11,11 +23,12 @@ pub(crate) struct LogicalMachine {
 }
 
 impl LogicalMachine {
-    pub(crate) fn new<T>(hostname: T) -> Self
+    pub(crate) fn new<T>(id: LogicalMachineId, hostname: T) -> Self
     where
         T: string::ToString,
     {
         Self {
+            id,
             hostname: hostname.to_string(),
             ipaddr: net::Ipv4Addr::LOCALHOST.into(),
             tags: collections::HashMap::new(),
@@ -25,7 +38,8 @@ impl LogicalMachine {
     }
 
     pub(crate) fn new_with_tags<T>(
-        hostname: String,
+        id: LogicalMachineId,
+        hostname: T,
         ipaddr: net::IpAddr,
         tags: collections::HashMap<String, String>,
     ) -> Self
@@ -33,6 +47,7 @@ impl LogicalMachine {
         T: string::ToString,
     {
         Self {
+            id,
             hostname: hostname.to_string(),
             ipaddr: ipaddr,
             tags,
@@ -49,30 +64,37 @@ impl LogicalMachine {
         self.ipaddr
     }
 
-    pub(crate) fn bind_acceptor(&mut self, port: u16) -> Result<TcpListener, io::Error> {
+    pub(crate) fn bind_listener(&mut self, port: u16) -> Result<TcpListener, io::Error> {
         self.gc_connections();
         let port = self.allocate_port(port)?;
-        let (acceptor, handle) = TcpListener::new(net::SocketAddr::new(self.ipaddr, port.get()));
+        let (acceptor, handle) = TcpListener::new(net::SocketAddr::new(self.ipaddr(), port.get()));
         self.acceptors.insert(port, handle);
         Ok(acceptor)
     }
 
-    pub(crate) async fn connect(
+    pub(crate) fn connect(
         &mut self,
         client_addr: net::SocketAddr,
         port: num::NonZeroU16,
-    ) -> Result<TcpStream, io::Error> {
+    ) -> Pin<Box<dyn Future<Output = Result<TcpStream, io::Error>> + 'static>> {
         self.gc_connections();
-        let mut acceptor = self
+        let acceptor = self
             .acceptors
             .get(&port)
             .cloned()
-            .ok_or(io::ErrorKind::ConnectionRefused)?;
-        let server_addr = net::SocketAddr::new(self.ipaddr(), port.get());
-        let (client, server, handle) = TcpStream::new_pair(client_addr, server_addr);
-        acceptor.enqueue_incoming(server).await?;
-        self.connections.push(handle);
-        Ok(client)
+            .ok_or(io::ErrorKind::ConnectionRefused.into());
+        match acceptor {
+            Ok(mut acceptor) => {
+                let server_addr = net::SocketAddr::new(self.ipaddr(), port.get());
+                let (client, server, handle) = TcpStream::new_pair(client_addr, server_addr);
+                self.connections.push(handle);
+                Box::pin(async move {
+                    acceptor.enqueue_incoming(server).await?;
+                    Ok(client)
+                })
+            }
+            Err(e) => Box::pin(futures::future::ready(Err(e))),
+        }
     }
 
     fn allocate_port(&mut self, port: u16) -> Result<num::NonZeroU16, io::Error> {
@@ -107,10 +129,11 @@ mod tests {
     use tokio_util::codec::{Framed, LinesCodec};
 
     #[test]
-    fn bind_acceptor() -> Result<(), Box<dyn std::error::Error>> {
-        let mut machine = LogicalMachine::new("localhost");
-        let acceptor1 = machine.bind_acceptor(1)?;
-        let acceptor2 = machine.bind_acceptor(2)?;
+    fn bind_listener() -> Result<(), Box<dyn std::error::Error>> {
+        let machineid = LogicalMachineId(0);
+        let mut machine = LogicalMachine::new(machineid, "localhost");
+        let acceptor1 = machine.bind_listener(1)?;
+        let acceptor2 = machine.bind_listener(2)?;
 
         assert_eq!(
             acceptor1.local_addr(),
@@ -121,7 +144,7 @@ mod tests {
             std::net::SocketAddr::new(machine.ipaddr(), 2)
         );
         assert!(
-            machine.bind_acceptor(1).is_err(),
+            machine.bind_listener(1).is_err(),
             "expected binding to an existing port to return an error"
         );
         Ok(())
@@ -132,8 +155,9 @@ mod tests {
         let mut runtime = Runtime::new()?;
 
         runtime.block_on(async {
-            let mut machine = LogicalMachine::new("localhost");
-            let mut listener = machine.bind_acceptor(0)?;
+            let machineid = LogicalMachineId(0);
+            let mut machine = LogicalMachine::new(machineid, "localhost");
+            let mut listener = machine.bind_listener(0)?;
             let server_port = listener.local_addr().port();
 
             let (mut server_started, mut start) = oneshot::channel::<()>();
