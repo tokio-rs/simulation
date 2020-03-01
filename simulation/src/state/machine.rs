@@ -73,4 +73,19 @@ impl LogicalMachine {
 }
 
 #[cfg(test)]
-mod tests {}
+mod tests {
+    use super::*;
+
+    #[test]
+    fn task_machine() {
+        let id = LogicalMachineId::new(0);
+        let mut machine = LogicalMachine::new(id, "client");
+        let future = machine
+            .register_task(async { assert!(crate::state::task::current_taskid().is_some()) });
+        let mut runtime = tokio::runtime::Builder::new()
+            .basic_scheduler()
+            .build()
+            .unwrap();
+        runtime.block_on(future);
+    }
+}

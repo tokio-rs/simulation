@@ -6,7 +6,7 @@ mod task;
 use ident::{LogicalMachineId, LogicalTaskId};
 use machine::LogicalMachine;
 pub use simulation::{Simulation, SimulationHandle};
-use task::{LogicalTaskHandle, LogicalTaskWrapper};
+use task::LogicalTaskHandle;
 
 #[cfg(test)]
 mod tests {
