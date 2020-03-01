@@ -1,16 +1,21 @@
 //! LogicalMachine contains the state associated with a single
 //! logical machine for a simulation run.
 use crate::state::{task::wrap_task, LogicalMachineId, LogicalTaskHandle, LogicalTaskId};
+use crate::tcp;
 use crate::tcp::TcpListenerHandle;
-use core::future::Future;
-use core::num::NonZeroU16;
-use std::collections::HashMap;
+use std::{
+    collections::{HashMap, HashSet},
+    future::Future,
+    net,
+    num::NonZeroU16,
+};
 
 #[derive(Debug)]
 pub struct LogicalMachine {
     id: LogicalMachineId,
     next_taskid: u64,
     hostname: String,
+    localaddr: net::IpAddr,
     bound: HashMap<NonZeroU16, TcpListenerHandle>,
     tasks: HashMap<LogicalTaskId, LogicalTaskHandle>,
 }
@@ -19,11 +24,16 @@ impl LogicalMachine {
     /// Construct a new [LogicalMachine] keyed by the provided id and hostname.
     ///
     /// [LogicalMachine]:
-    pub(crate) fn new<S: Into<String>>(id: LogicalMachineId, hostname: S) -> Self {
+    pub(crate) fn new<S: Into<String>>(
+        id: LogicalMachineId,
+        hostname: S,
+        addr: net::IpAddr,
+    ) -> Self {
         Self {
             id,
             next_taskid: 0,
             hostname: hostname.into(),
+            localaddr: addr,
             bound: HashMap::new(),
             tasks: HashMap::new(),
         }
@@ -66,9 +76,46 @@ impl LogicalMachine {
         return task;
     }
 
+    fn unused_port(&self) -> NonZeroU16 {
+        let mut start = 0;
+        let occupied = self
+            .bound
+            .keys()
+            .into_iter()
+            .map(|v| v.get())
+            .collect::<HashSet<_>>();
+        loop {
+            if start == 0 {
+                panic!("out of available ports")
+            }
+            if !occupied.contains(&start) {
+                return NonZeroU16::new(start).unwrap();
+            }
+            start -= 1;
+        }
+    }
+
     /// Returns the hostname associated with this logical machine.
     pub(crate) fn hostname(&self) -> String {
         self.hostname.clone()
+    }
+
+    pub(crate) fn bind(&mut self, port: u16) -> tcp::TcpListener {
+        let port = if let Some(port) = NonZeroU16::new(port) {
+            port
+        } else {
+            self.unused_port()
+        };
+
+        let socketaddr = net::SocketAddr::new(self.localaddr, port.get());
+        let (listener, handle) = tcp::TcpListener::new(socketaddr);
+        // TODO: handle binding to the same port twice
+        self.bound.insert(port, handle);
+        listener
+    }
+
+    pub(crate) fn localaddr(&self) -> net::IpAddr {
+        self.localaddr
     }
 }
 
@@ -79,7 +126,7 @@ mod tests {
     #[test]
     fn task_machine() {
         let id = LogicalMachineId::new(0);
-        let mut machine = LogicalMachine::new(id, "client");
+        let mut machine = LogicalMachine::new(id, "client", net::Ipv4Addr::LOCALHOST.into());
         let future = machine
             .register_task(async { assert!(crate::state::task::current_taskid().is_some()) });
         let mut runtime = tokio::runtime::Builder::new()

@@ -6,6 +6,7 @@ use std::{
     cell::RefCell,
     collections::{HashMap, HashSet},
     future::Future,
+    net,
     sync::{Arc, Mutex},
 };
 use tokio::{runtime::Runtime, stream::StreamExt, task::JoinHandle};
@@ -37,6 +38,15 @@ impl State {
         LogicalMachineId::new(new)
     }
 
+    fn unused_ipaddr(&self) -> net::IpAddr {
+        let all = self
+            .machines
+            .values()
+            .map(|m| m.localaddr())
+            .collect::<Vec<_>>();
+        crate::util::find_unused_ipaddr(&all)
+    }
+
     /// Register a new [LogicalMachine] under this [Simulation] for the provided
     /// hostname.
     ///
@@ -48,7 +58,8 @@ impl State {
         if self.hostnames.contains(&hostname) {
             panic!("cannot register the same hostname twice");
         }
-        let machine = LogicalMachine::new(id, hostname.clone());
+        let ipaddr = self.unused_ipaddr();
+        let machine = LogicalMachine::new(id, hostname.clone(), ipaddr);
         self.machines.insert(id, machine);
         self.hostnames.insert(hostname);
         self.machines.get_mut(&id).unwrap()
@@ -200,6 +211,13 @@ impl SimulationHandle {
         let mut lock = self.state.lock().unwrap();
         let machine = lock.machine(machineid);
         machine.hostname()
+    }
+
+    pub fn bind(&self, port: u16) -> crate::tcp::TcpListener {
+        let machineid = self.get_machine_id();
+        let mut lock = self.state.lock().unwrap();
+        let machine = lock.machine(machineid);
+        machine.bind(port)
     }
 }
 
