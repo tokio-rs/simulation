@@ -30,6 +30,8 @@ mod tests {
             .run();
     }
 
+    // Test that spawning a child task will inherit the parent
+    // tasks context for spawn and spawn_blocking.
     #[test]
     fn task_spawning_context_inheritance() {
         Simulation::new(0)
@@ -40,7 +42,6 @@ mod tests {
                     "expected hostname to match for root level task"
                 );
             })
-            /*
             .machine("client2", |_| async {
                 let child_hostname = SimulationHandle::current()
                     .spawn(async { SimulationHandle::current().hostname() })
@@ -62,7 +63,7 @@ mod tests {
                     child_hostname,
                     "expected child task to inherit parent hostname"
                 );
-            })*/
+            })
             .run();
     }
 }

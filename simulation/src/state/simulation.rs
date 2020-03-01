@@ -119,8 +119,10 @@ impl Simulation {
             let mut state = self.state.lock().unwrap();
             let machine = state.register_machine(hostname);
             let handle = self.handle();
-            f(handle)
+            let future = f(handle);
+            machine.register_task(future)
         };
+
         let handle = self.runtime.spawn(future);
         self.handles.push(handle);
         self
@@ -147,7 +149,8 @@ impl Simulation {
             let mut state = self.state.lock().unwrap();
             let machine = state.register_machine("localhost");
             let handle = self.handle();
-            f(handle)
+            let future = f(handle);
+            machine.register_task(future)
         };
         let handle = self.handle();
         with_handle(handle, || self.runtime.block_on(future))
@@ -209,7 +212,7 @@ impl crate::api::ExecutorHandle for SimulationHandle {
         let machineid = self.get_machine_id();
         let mut lock = self.state.lock().unwrap();
         let machine = lock.machine(machineid);
-        machine.spawn_task(future)
+        tokio::spawn(machine.register_task(future))
     }
 
     fn spawn_local<F>(&self, future: F) -> JoinHandle<F::Output>
@@ -220,7 +223,7 @@ impl crate::api::ExecutorHandle for SimulationHandle {
         let machineid = self.get_machine_id();
         let mut lock = self.state.lock().unwrap();
         let machine = lock.machine(machineid);
-        machine.spawn_local_task(future)
+        tokio::task::spawn_local(machine.register_task(future))
     }
 
     fn spawn_blocking<F, R>(&self, f: F) -> JoinHandle<R>
@@ -231,6 +234,9 @@ impl crate::api::ExecutorHandle for SimulationHandle {
         let machineid = self.get_machine_id();
         let mut lock = self.state.lock().unwrap();
         let machine = lock.machine(machineid);
-        machine.spawn_blocking_task(f)
+        // Just block the event loop here to ensure deterministic execution is
+        // maintained. It might be worth considering emitting a warning in the future
+        // though, as this could hinder simulation speed.
+        tokio::spawn(machine.register_task(async { f() }))
     }
 }
