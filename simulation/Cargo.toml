@@ -1,6 +1,6 @@
 [package]
 name = "simulation"
-version = "0.0.2-alpha.0"
+version = "0.0.2-alpha.1"
 authors = ["Gardner Vickers <gardner@vickers.me>"]
 edition = "2018"
 license = "MIT"
@@ -13,19 +13,10 @@ categories = ["simulation", "asynchronous", "network-programming"]
 keywords = ["simulation", "deterministic", "asynchronous", "testing"]
 
 [dependencies]
-async-trait = "0.1.17"
-bytes = "0.4.12"
-futures-preview = { version = "0.3.0-alpha.19", features = ["async-await"] }
-rand = { version = "0.7.2", features = ["small_rng"] }
-rand_distr = "0.2.2"
-tokio = { version = "0.2.0-alpha.6" }
-tokio-executor = "0.2.0-alpha.6"
-tokio-net = "0.2.0-alpha.6"
-
-tokio-timer = "0.3.0-alpha.6"
-tracing = "0.1.10"
-tracing-attributes = "0.1.5"
-tracing-futures = {version = "0.1.1", features = ["tokio-alpha"]}
+tokio = { features = ["full", "test-util"], path = "../../tokio/tokio"}
+pin-project = "0.4.8"
+bytes = "0.5.4"
+futures = "0.3.4"
 
 [dev-dependencies]
-tokio-test = "0.2.0-alpha.6"
+futures-test = {version = "0.3.4"}
