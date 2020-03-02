@@ -1,13 +1,16 @@
 //! LogicalMachine contains the state associated with a single
 //! logical machine for a simulation run.
+
 use crate::state::{task::wrap_task, LogicalMachineId, LogicalTaskHandle, LogicalTaskId};
 use crate::tcp;
-use crate::tcp::TcpListenerHandle;
+use crate::tcp::{TcpListener, TcpListenerHandle, TcpStream, TcpStreamHandle};
+use futures::ready;
 use std::{
     collections::{HashMap, HashSet},
     future::Future,
-    net,
+    io, net,
     num::NonZeroU16,
+    task::{Context, Poll},
 };
 
 #[derive(Debug)]
@@ -17,6 +20,7 @@ pub struct LogicalMachine {
     hostname: String,
     localaddr: net::IpAddr,
     bound: HashMap<NonZeroU16, TcpListenerHandle>,
+    outgoing: HashMap<LogicalMachineId, TcpStreamHandle>,
     tasks: HashMap<LogicalTaskId, LogicalTaskHandle>,
 }
 
@@ -35,6 +39,7 @@ impl LogicalMachine {
             hostname: hostname.into(),
             localaddr: addr,
             bound: HashMap::new(),
+            outgoing: HashMap::new(),
             tasks: HashMap::new(),
         }
     }
@@ -100,7 +105,7 @@ impl LogicalMachine {
         self.hostname.clone()
     }
 
-    pub(crate) fn bind(&mut self, port: u16) -> tcp::TcpListener {
+    pub(crate) fn bind(&mut self, port: u16) -> TcpListener {
         let port = if let Some(port) = NonZeroU16::new(port) {
             port
         } else {
@@ -112,6 +117,33 @@ impl LogicalMachine {
         // TODO: handle binding to the same port twice
         self.bound.insert(port, handle);
         listener
+    }
+
+    /// Connect to the remote machine.
+    pub(crate) fn poll_connect(
+        &mut self,
+        cx: &mut Context<'_>,
+        port: u16, //TODO: we need a "register" kind of approach here
+        // where we don't pass in the entire remote machine but we pass in
+        // what's needed from it.W
+        remote: &mut LogicalMachine,
+    ) -> Poll<Result<TcpStream, io::Error>> {
+        let local_addr = net::SocketAddr::new(self.localaddr(), 9999);
+        let remote_addr = net::SocketAddr::new(remote.localaddr(), port);
+        let (client, server, handle) = TcpStream::new_pair(local_addr, remote_addr);
+        if let Some(remote_port) = NonZeroU16::new(port) {
+            if let Some(remote) = remote.bound.get_mut(&remote_port) {
+                ready!(remote.poll_enqueue_incoming(cx, server))?;
+                Poll::Ready(Ok(client))
+            } else {
+                Poll::Ready(Err(io::ErrorKind::ConnectionRefused.into()))
+            }
+        } else {
+            Poll::Ready(Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "cannot connect to 0 port",
+            )))
+        }
     }
 
     pub(crate) fn localaddr(&self) -> net::IpAddr {

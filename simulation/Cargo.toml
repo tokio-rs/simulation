@@ -19,4 +19,5 @@ bytes = "0.5.4"
 futures = "0.3.4"
 
 [dev-dependencies]
-futures-test = {version = "0.3.4"}
+futures-test = { version = "0.3.4"}
+tokio-util = {features = ["codec"], path = "../../tokio/tokio-util"}

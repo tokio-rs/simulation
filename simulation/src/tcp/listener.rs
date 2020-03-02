@@ -1,5 +1,5 @@
 use crate::tcp::TcpStream;
-use futures::{future::poll_fn, ready, Stream};
+use futures::{future::poll_fn, ready, Future, Stream};
 use std::{
     io, net,
     pin::Pin,
@@ -110,11 +110,14 @@ impl TcpListenerHandle {
         self.shared.upgrade().is_none()
     }
 
-    pub async fn enqueue_incoming(&mut self, stream: TcpStream) -> Result<(), io::Error> {
-        self.sender
-            .send(stream)
-            .await
-            .map_err(|_| io::ErrorKind::ConnectionRefused)?;
-        Ok(())
+    pub fn poll_enqueue_incoming(
+        &mut self,
+        cx: &mut Context<'_>,
+        stream: TcpStream,
+    ) -> Poll<Result<(), io::Error>> {
+        let future = self.sender.send(stream);
+        futures::pin_mut!(future);
+        ready!(future.poll(cx)).map_err(|_| io::ErrorKind::ConnectionRefused)?;
+        Poll::Ready(Ok(()))
     }
 }
