@@ -93,10 +93,9 @@ mod tests {
                 let handle = crate::state::SimulationHandle::current();
                 // Induce reordering so the server starts before this task.
                 tokio::time::delay_for(Duration::from_secs(5)).await;
-                let stream = handle
-                    .connect(String::from("server"), 9092)
-                    .await
-                    .expect("failed to connect");
+                let addr = handle.resolve(String::from("server")).unwrap();
+                let addr = std::net::SocketAddr::new(addr, 9092);
+                let stream = handle.connect(addr).await.expect("failed to connect");
                 let mut transport = Framed::new(stream, LinesCodec::new());
                 transport.send(String::from("Simulation")).await.unwrap();
                 let response = transport.next().await.unwrap().unwrap();

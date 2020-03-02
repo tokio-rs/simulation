@@ -91,6 +91,15 @@ impl State {
         }
         None
     }
+
+    fn lookup(&self, addr: net::SocketAddr) -> Option<LogicalMachineId> {
+        for (id, machine) in self.machines.iter() {
+            if machine.localaddr() == addr.ip() {
+                return Some(*id);
+            }
+        }
+        None
+    }
 }
 
 #[derive(Debug)]
@@ -227,12 +236,12 @@ impl SimulationHandle {
     pub fn poll_connect(
         &self,
         cx: &mut Context<'_>,
-        hostname: String,
-        port: u16,
+        addr: net::SocketAddr,
     ) -> Poll<Result<SimulatedTcpStream, io::Error>> {
         let mut lock = self.state.lock().unwrap();
         let local_machine_id = self.get_machine_id();
-        if let Some(remote_machine_id) = lock.resolve(hostname) {
+
+        if let Some(remote_machine_id) = lock.lookup(addr) {
             // Safety: We ensure that the inidices we're borrowing here are unique.
             let (local_machine, remote_machine): (&mut LogicalMachine, &mut LogicalMachine) = unsafe {
                 assert_ne!(local_machine_id, remote_machine_id);
@@ -240,7 +249,7 @@ impl SimulationHandle {
                 let remote_machine = lock.machine(remote_machine_id) as *mut _;
                 (&mut *local_machine, &mut *remote_machine)
             };
-            local_machine.poll_connect(cx, port, remote_machine)
+            local_machine.poll_connect(cx, addr.port(), remote_machine)
         } else {
             Poll::Ready(Err(io::ErrorKind::ConnectionRefused.into()))
         }
@@ -248,10 +257,17 @@ impl SimulationHandle {
 
     pub async fn connect(
         &self,
-        hostname: String,
-        port: u16,
+        addr: std::net::SocketAddr,
     ) -> Result<SimulatedTcpStream, io::Error> {
-        futures::future::poll_fn(|cx| self.poll_connect(cx, hostname.clone(), port)).await
+        futures::future::poll_fn(|cx| self.poll_connect(cx, addr)).await
+    }
+
+    pub fn resolve<S: Into<String>>(&self, hostname: S) -> Option<net::IpAddr> {
+        let mut lock = self.state.lock().unwrap();
+        if let Some(machineid) = lock.resolve(hostname) {
+            return Some(lock.machine(machineid).localaddr());
+        }
+        None
     }
 }
 
