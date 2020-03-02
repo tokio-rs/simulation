@@ -1,14 +1,13 @@
 //! Simulation contains the state for a simulation run. A simulation
 //! run is a determinstic test run with variance introduced via a seed.
 use crate::{
+    net::tcp::{SimulatedTcpListener, SimulatedTcpStream},
     state::{LogicalMachine, LogicalMachineId},
-    tcp::{TcpListener, TcpStream},
 };
 use futures::stream::FuturesUnordered;
 use std::{
     cell::RefCell,
     collections::{HashMap, HashSet},
-    error::Error,
     future::Future,
     io, net,
     sync::{Arc, Mutex},
@@ -97,7 +96,7 @@ impl State {
 #[derive(Debug)]
 pub struct Simulation {
     runtime: Runtime,
-    handles: FuturesUnordered<JoinHandle<Result<(), Box<dyn Error + Send + 'static>>>>,
+    handles: FuturesUnordered<JoinHandle<()>>,
     state: Arc<Mutex<State>>,
 }
 
@@ -127,7 +126,7 @@ impl Simulation {
     /// Construct and run a future under a new simulation context.
     pub fn machine<F, S>(&mut self, hostname: S, f: F) -> &mut Self
     where
-        F: Future<Output = Result<(), Box<dyn Error + Send + 'static>>> + Send + 'static,
+        F: Future<Output = ()> + Send + 'static,
         S: Into<String>,
     {
         let future = {
@@ -143,21 +142,13 @@ impl Simulation {
     }
 
     /// Run the simulation, waiting on termination of all simulation contexts.
-    pub fn run(&mut self) -> Result<(), Box<dyn Error + Send>> {
+    pub fn run(&mut self) {
         let handle = self.handle();
         with_handle(handle, || {
             let handles = &mut self.handles;
-            self.runtime.block_on(async {
-                for result in handles.next().await.unwrap() {
-                    match result {
-                        Ok(()) => {}
-                        Err(e) => return Err(e),
-                    }
-                }
-                Ok(())
-            })
-        })?;
-        Ok(())
+            self.runtime
+                .block_on(async { for result in handles.next().await {} })
+        });
     }
 
     /// Run the simulation using the default "localhost" context.
@@ -203,6 +194,10 @@ pub struct SimulationHandle {
 }
 
 impl SimulationHandle {
+    pub(crate) fn opt() -> Option<Self> {
+        CURRENT_HANDLE.with(|cx| cx.borrow().clone())
+    }
+
     pub fn current() -> Self {
         CURRENT_HANDLE
             .with(|cx| cx.borrow().clone())
@@ -222,7 +217,7 @@ impl SimulationHandle {
         machine.hostname()
     }
 
-    pub fn bind(&self, port: u16) -> TcpListener {
+    pub fn bind(&self, port: u16) -> SimulatedTcpListener {
         let machineid = self.get_machine_id();
         let mut lock = self.state.lock().unwrap();
         let machine = lock.machine(machineid);
@@ -234,7 +229,7 @@ impl SimulationHandle {
         cx: &mut Context<'_>,
         hostname: String,
         port: u16,
-    ) -> Poll<Result<TcpStream, io::Error>> {
+    ) -> Poll<Result<SimulatedTcpStream, io::Error>> {
         let mut lock = self.state.lock().unwrap();
         let local_machine_id = self.get_machine_id();
         if let Some(remote_machine_id) = lock.resolve(hostname) {
@@ -251,7 +246,11 @@ impl SimulationHandle {
         }
     }
 
-    pub async fn connect(&self, hostname: String, port: u16) -> Result<TcpStream, io::Error> {
+    pub async fn connect(
+        &self,
+        hostname: String,
+        port: u16,
+    ) -> Result<SimulatedTcpStream, io::Error> {
         futures::future::poll_fn(|cx| self.poll_connect(cx, hostname.clone(), port)).await
     }
 }

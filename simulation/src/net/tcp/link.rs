@@ -61,7 +61,7 @@ impl Link {
         }
     }
 
-    pub fn poll_peek(&mut self, cx: &mut Context<'_>, buf: &mut [u8]) -> Poll<io::Result<usize>> {
+    pub fn poll_peek(&mut self, _: &mut Context<'_>, _: &mut [u8]) -> Poll<io::Result<usize>> {
         todo!("implement peek")
     }
 }
@@ -104,10 +104,11 @@ impl AsyncWrite for Link {
         }
     }
 
-    fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), io::Error>> {
+    fn poll_flush(self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<Result<(), io::Error>> {
         Poll::Ready(Ok(()))
     }
-    fn poll_shutdown(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), io::Error>> {
+
+    fn poll_shutdown(self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<Result<(), io::Error>> {
         Poll::Ready(Ok(()))
     }
 }

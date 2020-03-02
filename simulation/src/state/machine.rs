@@ -1,9 +1,10 @@
 //! LogicalMachine contains the state associated with a single
 //! logical machine for a simulation run.
 
+use crate::net::tcp::{
+    SimulatedTcpListener, SimulatedTcpListenerHandle, SimulatedTcpStream, SimulatedTcpStreamHandle,
+};
 use crate::state::{task::wrap_task, LogicalMachineId, LogicalTaskHandle, LogicalTaskId};
-use crate::tcp;
-use crate::tcp::{TcpListener, TcpListenerHandle, TcpStream, TcpStreamHandle};
 use futures::ready;
 use std::{
     collections::{HashMap, HashSet},
@@ -19,8 +20,8 @@ pub struct LogicalMachine {
     next_taskid: u64,
     hostname: String,
     localaddr: net::IpAddr,
-    bound: HashMap<NonZeroU16, TcpListenerHandle>,
-    outgoing: HashMap<LogicalMachineId, TcpStreamHandle>,
+    bound: HashMap<NonZeroU16, SimulatedTcpListenerHandle>,
+    outgoing: HashMap<LogicalMachineId, SimulatedTcpStreamHandle>,
     tasks: HashMap<LogicalTaskId, LogicalTaskHandle>,
 }
 
@@ -105,7 +106,8 @@ impl LogicalMachine {
         self.hostname.clone()
     }
 
-    pub(crate) fn bind(&mut self, port: u16) -> TcpListener {
+    pub(crate) fn bind(&mut self, port: u16) -> SimulatedTcpListener {
+        self.garbage_collect();
         let port = if let Some(port) = NonZeroU16::new(port) {
             port
         } else {
@@ -113,7 +115,7 @@ impl LogicalMachine {
         };
 
         let socketaddr = net::SocketAddr::new(self.localaddr, port.get());
-        let (listener, handle) = tcp::TcpListener::new(socketaddr);
+        let (listener, handle) = SimulatedTcpListener::new(socketaddr);
         // TODO: handle binding to the same port twice
         self.bound.insert(port, handle);
         listener
@@ -127,13 +129,16 @@ impl LogicalMachine {
         // where we don't pass in the entire remote machine but we pass in
         // what's needed from it.W
         remote: &mut LogicalMachine,
-    ) -> Poll<Result<TcpStream, io::Error>> {
+    ) -> Poll<Result<SimulatedTcpStream, io::Error>> {
+        self.garbage_collect();
         let local_addr = net::SocketAddr::new(self.localaddr(), 9999);
         let remote_addr = net::SocketAddr::new(remote.localaddr(), port);
-        let (client, server, handle) = TcpStream::new_pair(local_addr, remote_addr);
+        let remote_machine_id = remote.id();
+        let (client, server, handle) = SimulatedTcpStream::new_pair(local_addr, remote_addr);
         if let Some(remote_port) = NonZeroU16::new(port) {
             if let Some(remote) = remote.bound.get_mut(&remote_port) {
                 ready!(remote.poll_enqueue_incoming(cx, server))?;
+                self.outgoing.insert(remote_machine_id, handle);
                 Poll::Ready(Ok(client))
             } else {
                 Poll::Ready(Err(io::ErrorKind::ConnectionRefused.into()))
@@ -148,6 +153,18 @@ impl LogicalMachine {
 
     pub(crate) fn localaddr(&self) -> net::IpAddr {
         self.localaddr
+    }
+
+    pub(crate) fn garbage_collect(&mut self) {
+        let mut garbage = vec![];
+        for (k, v) in self.bound.iter() {
+            if v.dropped() {
+                garbage.push(*k)
+            }
+        }
+        for port in garbage {
+            self.bound.remove(&port);
+        }
     }
 }
 

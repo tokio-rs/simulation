@@ -54,13 +54,3 @@ mod tests {
         );
     }
 }
-
-#[cfg(test)]
-pub(super) fn test_runtime() -> tokio::runtime::Runtime {
-    tokio::runtime::Builder::new()
-        .enable_time()
-        .freeze_time()
-        .basic_scheduler()
-        .build()
-        .unwrap()
-}

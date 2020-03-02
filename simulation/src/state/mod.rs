@@ -29,10 +29,8 @@ mod tests {
                 assert!(std::time::Instant::now() - start < delay_duration);
                 let expected = simulated_now.checked_add(delay_duration).unwrap();
                 assert_eq!(expected, tokio::time::Instant::now());
-                Ok(())
             })
-            .run()
-            .unwrap();
+            .run();
     }
 
     // Test that spawning a child task will inherit the parent
@@ -46,7 +44,6 @@ mod tests {
                     SimulationHandle::current().hostname(),
                     "expected hostname to match for root level task"
                 );
-                Ok(())
             })
             .machine("client2", async {
                 let child_hostname = SimulationHandle::current()
@@ -58,7 +55,6 @@ mod tests {
                     child_hostname,
                     "expected child task to inherit parent hostname"
                 );
-                Ok(())
             })
             .machine("client3", async {
                 let child_hostname = SimulationHandle::current()
@@ -70,10 +66,8 @@ mod tests {
                     child_hostname,
                     "expected child task to inherit parent hostname"
                 );
-                Ok(())
             })
-            .run()
-            .unwrap();
+            .run();
     }
 
     /// Test that client connections can be made and disconnects are witnessed.
@@ -94,7 +88,6 @@ mod tests {
                         None => panic!("server listener closed"),
                     };
                 }
-                Ok(())
             })
             .machine("client", async {
                 let handle = crate::state::SimulationHandle::current();
@@ -108,9 +101,7 @@ mod tests {
                 transport.send(String::from("Simulation")).await.unwrap();
                 let response = transport.next().await.unwrap().unwrap();
                 assert_eq!("Hello, Simulation", response);
-                Ok(())
             })
-            .run()
-            .unwrap();
+            .run();
     }
 }
