@@ -20,30 +20,6 @@ pub struct SimulatedTcpListener {
     shared: sync::Arc<sync::Mutex<Shared>>,
 }
 
-impl Incoming<'_> {
-    pub(crate) fn new(listener: &mut SimulatedTcpListener) -> Incoming<'_> {
-        Incoming { inner: listener }
-    }
-
-    #[doc(hidden)] // TODO: dox
-    pub fn poll_accept(
-        mut self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-    ) -> Poll<io::Result<SimulatedTcpStream>> {
-        let (socket, _) = ready!(self.inner.poll_accept(cx))?;
-        Poll::Ready(Ok(socket))
-    }
-}
-
-impl Stream for Incoming<'_> {
-    type Item = io::Result<SimulatedTcpStream>;
-
-    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        let (socket, _) = ready!(self.inner.poll_accept(cx))?;
-        Poll::Ready(Some(Ok(socket)))
-    }
-}
-
 /// Stream returned by the `TcpListener::incoming` function representing the
 /// stream of sockets received from a listener.
 #[must_use = "streams do nothing unless polled"]
@@ -75,7 +51,7 @@ impl SimulatedTcpListener {
         Ok(self.local_addr)
     }
 
-    pub(crate) async fn accept(&mut self) -> io::Result<(SimulatedTcpStream, net::SocketAddr)> {
+    pub async fn accept(&mut self) -> io::Result<(SimulatedTcpStream, net::SocketAddr)> {
         poll_fn(|cx| self.poll_accept(cx)).await
     }
 
@@ -87,10 +63,6 @@ impl SimulatedTcpListener {
             ready!(Pin::new(&mut self.incoming).poll_next(cx)).ok_or(io::ErrorKind::NotFound)?;
         let addr = stream.peer_addr()?;
         Poll::Ready(Ok((stream, addr)))
-    }
-
-    pub(crate) fn incoming(&mut self) -> Incoming<'_> {
-        Incoming::new(self)
     }
 
     pub(crate) fn ttl(&self) -> io::Result<u32> {
@@ -142,7 +114,7 @@ impl TcpListener {
         }
     }
 
-    pub(crate) async fn accept(&mut self) -> io::Result<(TcpStream, net::SocketAddr)> {
+    pub async fn accept(&mut self) -> io::Result<(TcpStream, net::SocketAddr)> {
         poll_fn(|cx| self.poll_accept(cx)).await
     }
 

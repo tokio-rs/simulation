@@ -13,11 +13,11 @@ categories = ["simulation", "asynchronous", "network-programming"]
 keywords = ["simulation", "deterministic", "asynchronous", "testing"]
 
 [dependencies]
-tokio = { features = ["full", "test-util"], path = "../../tokio/tokio"}
+tokio = { features = ["full", "test-util"], git = "https://github.com/tokio-rs/tokio", branch = "freezetime"}
 pin-project = "0.4.8"
 bytes = "0.5.4"
 futures = "0.3.4"
 
 [dev-dependencies]
 futures-test = { version = "0.3.4"}
-tokio-util = {features = ["codec"], path = "../../tokio/tokio-util"}
+tokio-util = {features = ["codec"], git = "https://github.com/tokio-rs/tokio", branch = "freezetime"}

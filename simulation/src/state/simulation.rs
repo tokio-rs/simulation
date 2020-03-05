@@ -141,7 +141,7 @@ impl Simulation {
         let future = {
             let mut state = self.state.lock().unwrap();
             let machine = state.register_machine(hostname);
-            let handle = self.handle();
+
             machine.register_task(f)
         };
 
@@ -156,7 +156,7 @@ impl Simulation {
         with_handle(handle, || {
             let handles = &mut self.handles;
             self.runtime
-                .block_on(async { for result in handles.next().await {} })
+                .block_on(async { for _ in handles.next().await {} })
         });
     }
 
@@ -213,21 +213,21 @@ impl SimulationHandle {
             .expect("must be called from within simulation")
     }
 
-    fn get_machine_id(&self) -> LogicalMachineId {
+    fn machine_id(&self) -> LogicalMachineId {
         let current =
             crate::state::task::current_taskid().expect("called outside of machine context");
         current.machine()
     }
 
     pub fn hostname(&self) -> String {
-        let machineid = self.get_machine_id();
+        let machineid = self.machine_id();
         let mut lock = self.state.lock().unwrap();
         let machine = lock.machine(machineid);
         machine.hostname()
     }
 
     pub fn bind(&self, port: u16) -> SimulatedTcpListener {
-        let machineid = self.get_machine_id();
+        let machineid = self.machine_id();
         let mut lock = self.state.lock().unwrap();
         let machine = lock.machine(machineid);
         machine.bind(port)
@@ -239,7 +239,7 @@ impl SimulationHandle {
         addr: net::SocketAddr,
     ) -> Poll<Result<SimulatedTcpStream, io::Error>> {
         let mut lock = self.state.lock().unwrap();
-        let local_machine_id = self.get_machine_id();
+        let local_machine_id = self.machine_id();
 
         if let Some(remote_machine_id) = lock.lookup(addr) {
             // Safety: We ensure that the inidices we're borrowing here are unique.
@@ -277,7 +277,7 @@ impl crate::api::ExecutorHandle for SimulationHandle {
         F: Future + Send + 'static,
         F::Output: Send + 'static,
     {
-        let machineid = self.get_machine_id();
+        let machineid = self.machine_id();
         let mut lock = self.state.lock().unwrap();
         let machine = lock.machine(machineid);
         tokio::spawn(machine.register_task(future))
@@ -288,7 +288,7 @@ impl crate::api::ExecutorHandle for SimulationHandle {
         F: Future + 'static,
         F::Output: 'static,
     {
-        let machineid = self.get_machine_id();
+        let machineid = self.machine_id();
         let mut lock = self.state.lock().unwrap();
         let machine = lock.machine(machineid);
         tokio::task::spawn_local(machine.register_task(future))
@@ -299,7 +299,7 @@ impl crate::api::ExecutorHandle for SimulationHandle {
         F: FnOnce() -> R + Send + 'static,
         R: Send + 'static,
     {
-        let machineid = self.get_machine_id();
+        let machineid = self.machine_id();
         let mut lock = self.state.lock().unwrap();
         let machine = lock.machine(machineid);
         // Just block the event loop here to ensure deterministic execution is

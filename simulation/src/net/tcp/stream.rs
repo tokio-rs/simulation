@@ -459,7 +459,31 @@ impl TcpStream {
         }
     }
 
-    pub(crate) fn set_linger(&self, dur: Option<time::Duration>) -> io::Result<()> {
+    /// Sets the linger duration of this socket by setting the `SO_LINGER`
+    /// option.
+    ///
+    /// This option controls the action taken when a stream has unsent messages
+    /// and the stream is closed. If `SO_LINGER` is set, the system
+    /// shall block the process until it can transmit the data or until the
+    /// time expires.
+    ///
+    /// If `SO_LINGER` is not specified, and the stream is closed, the system
+    /// handles the call in a way that allows the process to continue as quickly
+    /// as possible.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use tokio::net::TcpStream;
+    ///
+    /// # async fn dox() -> Result<(), Box<dyn std::error::Error>> {
+    /// let stream = TcpStream::connect("127.0.0.1:8080").await?;
+    ///
+    /// stream.set_linger(None)?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn set_linger(&self, dur: Option<time::Duration>) -> io::Result<()> {
         match self.inner {
             TcpStreamInner::Simulated(ref s) => s.set_linger(dur),
             TcpStreamInner::Tokio(ref t) => t.set_linger(dur),
