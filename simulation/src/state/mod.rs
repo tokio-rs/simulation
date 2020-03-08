@@ -6,7 +6,7 @@ mod task;
 use ident::{LogicalMachineId, LogicalTaskId};
 use machine::LogicalMachine;
 pub use simulation::{Simulation, SimulationHandle};
-use task::LogicalTaskHandle;
+pub use task::LogicalTaskHandle;
 
 #[cfg(test)]
 mod tests {
@@ -78,7 +78,7 @@ mod tests {
             .machine("server", async {
                 let handle = crate::state::SimulationHandle::current();
                 let mut listener = handle.bind(9092);
-                while let Ok((socket, addr)) = listener.accept().await {
+                while let Ok((socket, _)) = listener.accept().await {
                     let mut transport = Framed::new(socket, LinesCodec::new());
                     match transport.next().await {
                         Some(Ok(msg)) => {

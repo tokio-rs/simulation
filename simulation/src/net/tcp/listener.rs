@@ -107,7 +107,7 @@ pub struct TcpListener {
 }
 
 impl TcpListener {
-    pub(crate) fn local_addr(&self) -> io::Result<net::SocketAddr> {
+    pub fn local_addr(&self) -> io::Result<net::SocketAddr> {
         match self.inner {
             TcpListenerInner::Simulated(ref s) => s.local_addr(),
             TcpListenerInner::Tokio(ref t) => t.local_addr(),
@@ -140,14 +140,14 @@ impl TcpListener {
         }
     }
 
-    pub(crate) fn ttl(&self) -> io::Result<u32> {
+    pub fn ttl(&self) -> io::Result<u32> {
         match self.inner {
             TcpListenerInner::Simulated(ref s) => s.ttl(),
             TcpListenerInner::Tokio(ref t) => t.ttl(),
         }
     }
 
-    pub(crate) fn set_ttl(&self, ttl: u32) -> io::Result<()> {
+    pub fn set_ttl(&self, ttl: u32) -> io::Result<()> {
         match self.inner {
             TcpListenerInner::Simulated(ref s) => s.set_ttl(ttl),
             TcpListenerInner::Tokio(ref t) => t.set_ttl(ttl),

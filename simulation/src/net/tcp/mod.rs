@@ -5,10 +5,9 @@ mod stream;
 use link::Link;
 pub use listener::TcpListener;
 pub(crate) use listener::{SimulatedTcpListener, SimulatedTcpListenerHandle};
-use std::future::Future;
 use std::{io, net, vec};
+pub use stream::SimulatedTcpStream;
 pub use stream::TcpStream;
-pub(crate) use stream::{SimulatedTcpStream, SimulatedTcpStreamHandle};
 
 fn resolve_simulation_addr(
     addr: &str,

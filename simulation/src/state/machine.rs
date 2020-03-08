@@ -1,9 +1,8 @@
 //! LogicalMachine contains the state associated with a single
 //! logical machine for a simulation run.
 
-use crate::net::tcp::{
-    SimulatedTcpListener, SimulatedTcpListenerHandle, SimulatedTcpStream, SimulatedTcpStreamHandle,
-};
+use crate::fault::FaultInjector;
+use crate::net::tcp::{SimulatedTcpListener, SimulatedTcpListenerHandle, SimulatedTcpStream};
 use crate::state::{task::wrap_task, LogicalMachineId, LogicalTaskHandle, LogicalTaskId};
 use futures::ready;
 use std::{
@@ -21,8 +20,8 @@ pub struct LogicalMachine {
     hostname: String,
     localaddr: net::IpAddr,
     bound: HashMap<NonZeroU16, SimulatedTcpListenerHandle>,
-    outgoing: HashMap<LogicalMachineId, SimulatedTcpStreamHandle>,
     tasks: HashMap<LogicalTaskId, LogicalTaskHandle>,
+    fault_injector: Option<FaultInjector>,
 }
 
 impl LogicalMachine {
@@ -33,6 +32,7 @@ impl LogicalMachine {
         id: LogicalMachineId,
         hostname: S,
         addr: net::IpAddr,
+        fault_injector: Option<FaultInjector>,
     ) -> Self {
         Self {
             id,
@@ -40,17 +40,9 @@ impl LogicalMachine {
             hostname: hostname.into(),
             localaddr: addr,
             bound: HashMap::new(),
-            outgoing: HashMap::new(),
             tasks: HashMap::new(),
+            fault_injector,
         }
-    }
-
-    /// Returns the [LogicalMachineId] associated with this [LogicalMachine].
-    ///
-    /// [LogicalMachineId]:struct.LogicalMachineId.html
-    /// [LogicalMachine]:struct.LogicalMachine.html
-    pub(crate) fn id(&self) -> LogicalMachineId {
-        self.id
     }
 
     /// Construct a new [LogicalTaskId] associated with this machine. Each call to this
@@ -133,12 +125,12 @@ impl LogicalMachine {
         self.garbage_collect();
         let local_addr = net::SocketAddr::new(self.localaddr(), 9999);
         let remote_addr = net::SocketAddr::new(remote.localaddr(), port);
-        let remote_machine_id = remote.id();
-        let (client, server, handle) = SimulatedTcpStream::new_pair(local_addr, remote_addr);
+        let fault_injector = self.fault_injector.clone();
+        let (client, server) =
+            SimulatedTcpStream::new_pair(local_addr, remote_addr, fault_injector);
         if let Some(remote_port) = NonZeroU16::new(port) {
             if let Some(remote) = remote.bound.get_mut(&remote_port) {
                 ready!(remote.poll_enqueue_incoming(cx, server))?;
-                self.outgoing.insert(remote_machine_id, handle);
                 Poll::Ready(Ok(client))
             } else {
                 Poll::Ready(Err(io::ErrorKind::ConnectionRefused.into()))
@@ -175,7 +167,7 @@ mod tests {
     #[test]
     fn task_machine() {
         let id = LogicalMachineId::new(0);
-        let mut machine = LogicalMachine::new(id, "client", net::Ipv4Addr::LOCALHOST.into());
+        let mut machine = LogicalMachine::new(id, "client", net::Ipv4Addr::LOCALHOST.into(), None);
         let future = machine
             .register_task(async { assert!(crate::state::task::current_taskid().is_some()) });
         let mut runtime = tokio::runtime::Builder::new()

@@ -41,18 +41,14 @@ impl LogicalTask {
 }
 
 #[derive(Debug)]
-pub(super) struct LogicalTaskHandle {
+pub struct LogicalTaskHandle {
     inner: Weak<Mutex<LogicalTask>>,
 }
 
 impl LogicalTaskHandle {
-    pub(super) fn id(&self) -> Option<LogicalTaskId> {
-        Weak::upgrade(&self.inner).map(|l| l.lock().unwrap().id)
-    }
-
     /// Set the number of times the logical task associated with this
     /// handle
-    pub(super) fn set_poll_priority(&self, prio: u16) -> Option<()> {
+    pub fn set_poll_priority(&self, prio: u16) -> Option<()> {
         Weak::upgrade(&self.inner).map(|l| {
             let mut lock = l.lock().unwrap();
             lock.poll_priority = prio;

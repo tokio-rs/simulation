@@ -1,6 +1,6 @@
 /// Identifier used to associate resources with a particular [LogicalMachine].
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
-pub(crate) struct LogicalMachineId(u64);
+pub struct LogicalMachineId(u64);
 
 impl LogicalMachineId {
     /// Construct a new [LogicalMachineId].
@@ -18,7 +18,7 @@ impl LogicalMachineId {
 /// Each [LogicalTaskId] has a parent [LogicalMachineId] which can
 /// be used to associate a task with a logical machine.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
-pub(crate) struct LogicalTaskId(LogicalMachineId, u64);
+pub struct LogicalTaskId(LogicalMachineId, u64);
 
 impl LogicalTaskId {
     /// Construct a new [LogicalTaskId] which is a child of the provided [LogicalMachineId].

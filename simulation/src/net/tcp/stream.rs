@@ -1,6 +1,6 @@
 use super::Link;
 use futures::{future::poll_fn, ready};
-use std::{future::Future, io, net, pin::Pin, sync, task::Context, task::Poll, time};
+use std::{io, net, pin::Pin, sync, task::Context, task::Poll, time};
 use tokio::io::{AsyncRead, AsyncWrite};
 
 /// Inner shared state for two halves of a TcpStream.
@@ -10,10 +10,6 @@ struct Shared {
     server_addr: net::SocketAddr,
     client_shutdown: Option<net::Shutdown>,
     server_shutdown: Option<net::Shutdown>,
-    client_read_latency: Option<time::Duration>,
-    client_write_latency: Option<time::Duration>,
-    server_read_latency: Option<time::Duration>,
-    server_write_latency: Option<time::Duration>,
 
     nodelay: bool,
     recv_buffer_size: usize,
@@ -25,68 +21,8 @@ struct Shared {
 
 #[derive(Debug)]
 pub enum TcpStreamHandleError {
+    #[allow(dead_code)]
     StreamDropped,
-}
-
-#[derive(Debug)]
-pub struct SimulatedTcpStreamHandle {
-    shared: sync::Weak<sync::Mutex<Shared>>,
-}
-
-impl SimulatedTcpStreamHandle {
-    fn new(shared: sync::Weak<sync::Mutex<Shared>>) -> Self {
-        Self { shared }
-    }
-
-    fn shared(&self) -> Result<sync::Arc<sync::Mutex<Shared>>, TcpStreamHandleError> {
-        self.shared
-            .upgrade()
-            .ok_or(TcpStreamHandleError::StreamDropped)
-    }
-
-    pub(crate) fn dropped(&self) -> bool {
-        self.shared.upgrade().is_none()
-    }
-
-    pub fn set_client_read_latency(
-        &self,
-        latency: Option<time::Duration>,
-    ) -> Result<(), TcpStreamHandleError> {
-        let shared = self.shared()?;
-        let mut lock = shared.lock().unwrap();
-        lock.client_read_latency = latency;
-        Ok(())
-    }
-
-    pub fn set_client_write_latency(
-        &self,
-        latency: Option<time::Duration>,
-    ) -> Result<(), TcpStreamHandleError> {
-        let shared = self.shared()?;
-        let mut lock = shared.lock().unwrap();
-        lock.client_write_latency = latency;
-        Ok(())
-    }
-
-    pub fn set_server_read_latency(
-        &self,
-        latency: Option<time::Duration>,
-    ) -> Result<(), TcpStreamHandleError> {
-        let shared = self.shared()?;
-        let mut lock = shared.lock().unwrap();
-        lock.server_read_latency = latency;
-        Ok(())
-    }
-
-    pub fn set_server_write_latency(
-        &self,
-        latency: Option<time::Duration>,
-    ) -> Result<(), TcpStreamHandleError> {
-        let shared = self.shared()?;
-        let mut lock = shared.lock().unwrap();
-        lock.server_write_latency = latency;
-        Ok(())
-    }
 }
 
 #[derive(Debug)]
@@ -95,8 +31,7 @@ pub struct SimulatedTcpStream {
     peer_addr: net::SocketAddr,
     shared: sync::Arc<sync::Mutex<Shared>>,
     link: Link,
-    read_delay: Option<tokio::time::Delay>,
-    write_delay: Option<tokio::time::Delay>,
+    fault_injector: Option<FaultInjector>,
 }
 
 impl SimulatedTcpStream {
@@ -105,31 +40,28 @@ impl SimulatedTcpStream {
         peer_addr: net::SocketAddr,
         shared: sync::Arc<sync::Mutex<Shared>>,
         link: Link,
+        fault_injector: Option<FaultInjector>,
     ) -> Self {
         Self {
             local_addr,
             peer_addr,
             shared,
             link,
-            read_delay: None,
-            write_delay: None,
+            fault_injector,
         }
     }
 
     pub(crate) fn new_pair(
         client_addr: net::SocketAddr,
         server_addr: net::SocketAddr,
-    ) -> (Self, Self, SimulatedTcpStreamHandle) {
+        fault_injector: Option<FaultInjector>,
+    ) -> (Self, Self) {
         let (client_link, server_link) = Link::new_pair();
         let shared = Shared {
             client_addr,
             server_addr,
             client_shutdown: None,
             server_shutdown: None,
-            client_read_latency: None,
-            client_write_latency: None,
-            server_read_latency: None,
-            server_write_latency: None,
             nodelay: false,
             recv_buffer_size: 1024 * 8,
             send_buffer_size: 1024 * 8,
@@ -143,16 +75,16 @@ impl SimulatedTcpStream {
             server_addr,
             sync::Arc::clone(&shared),
             client_link,
+            fault_injector.clone(),
         );
         let server = SimulatedTcpStream::new(
             server_addr,
             client_addr,
             sync::Arc::clone(&shared),
             server_link,
+            fault_injector.clone(),
         );
-        let weak = sync::Arc::downgrade(&shared);
-        let handle = SimulatedTcpStreamHandle::new(weak);
-        (client, server, handle)
+        (client, server)
     }
 
     pub fn local_addr(&self) -> io::Result<net::SocketAddr> {
@@ -180,56 +112,56 @@ impl SimulatedTcpStream {
         Ok(())
     }
 
-    pub(crate) fn nodelay(&self) -> io::Result<bool> {
+    pub fn nodelay(&self) -> io::Result<bool> {
         Ok(self.shared.lock().unwrap().nodelay)
     }
 
-    pub(crate) fn set_nodelay(&self, nodelay: bool) -> io::Result<()> {
+    pub fn set_nodelay(&self, nodelay: bool) -> io::Result<()> {
         self.shared.lock().unwrap().nodelay = nodelay;
         Ok(())
     }
 
-    pub(crate) fn recv_buffer_size(&self) -> io::Result<usize> {
+    pub fn recv_buffer_size(&self) -> io::Result<usize> {
         Ok(self.shared.lock().unwrap().recv_buffer_size)
     }
 
-    pub(crate) fn set_recv_buffer_size(&self, size: usize) -> io::Result<()> {
+    pub fn set_recv_buffer_size(&self, size: usize) -> io::Result<()> {
         self.shared.lock().unwrap().recv_buffer_size = size;
         Ok(())
     }
 
-    pub(crate) fn send_buffer_size(&self) -> io::Result<usize> {
+    pub fn send_buffer_size(&self) -> io::Result<usize> {
         Ok(self.shared.lock().unwrap().send_buffer_size)
     }
 
-    pub(crate) fn set_send_buffer_size(&self, size: usize) -> io::Result<()> {
+    pub fn set_send_buffer_size(&self, size: usize) -> io::Result<()> {
         self.shared.lock().unwrap().send_buffer_size = size;
         Ok(())
     }
 
-    pub(crate) fn keepalive(&self) -> io::Result<Option<time::Duration>> {
+    pub fn keepalive(&self) -> io::Result<Option<time::Duration>> {
         Ok(self.shared.lock().unwrap().keepalive)
     }
 
-    pub(crate) fn set_keepalive(&self, keepalive: Option<time::Duration>) -> io::Result<()> {
+    pub fn set_keepalive(&self, keepalive: Option<time::Duration>) -> io::Result<()> {
         self.shared.lock().unwrap().keepalive = keepalive;
         Ok(())
     }
 
-    pub(crate) fn ttl(&self) -> io::Result<u32> {
+    pub fn ttl(&self) -> io::Result<u32> {
         Ok(self.shared.lock().unwrap().ttl)
     }
 
-    pub(crate) fn set_ttl(&self, ttl: u32) -> io::Result<()> {
+    pub fn set_ttl(&self, ttl: u32) -> io::Result<()> {
         self.shared.lock().unwrap().ttl = ttl;
         Ok(())
     }
 
-    pub(crate) fn linger(&self) -> io::Result<Option<time::Duration>> {
+    pub fn linger(&self) -> io::Result<Option<time::Duration>> {
         Ok(self.shared.lock().unwrap().linger)
     }
 
-    pub(crate) fn set_linger(&self, dur: Option<time::Duration>) -> io::Result<()> {
+    pub fn set_linger(&self, dur: Option<time::Duration>) -> io::Result<()> {
         self.shared.lock().unwrap().linger = dur;
         Ok(())
     }
@@ -247,53 +179,6 @@ impl SimulatedTcpStream {
             self.shared.lock().unwrap().server_shutdown
         }
     }
-
-    fn poll_read_delay(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
-        if let Some(mut delay) = self.read_delay.take() {
-            match Pin::new(&mut delay).poll(cx) {
-                Poll::Pending => {
-                    self.read_delay.replace(delay.into());
-                    return Poll::Pending;
-                }
-                Poll::Ready(_) => return Poll::Ready(Ok(())),
-            }
-        } else {
-            let is_client = self.as_ref().is_client();
-            let lock = self.shared.lock().unwrap();
-            let read_latency = if is_client {
-                lock.client_read_latency
-            } else {
-                lock.server_read_latency
-            };
-
-            drop(lock);
-            read_latency.map(|delay| self.read_delay = Some(tokio::time::delay_for(delay)));
-            Poll::Ready(Ok(()))
-        }
-    }
-
-    fn poll_write_delay(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
-        if let Some(mut delay) = self.write_delay.take() {
-            match Pin::new(&mut delay).poll(cx) {
-                Poll::Pending => {
-                    self.write_delay.replace(delay.into());
-                    return Poll::Pending;
-                }
-                Poll::Ready(_) => return Poll::Ready(Ok(())),
-            }
-        } else {
-            let is_client = self.as_ref().is_client();
-            let lock = self.shared.lock().unwrap();
-            let write_latency = if is_client {
-                lock.client_write_latency
-            } else {
-                lock.server_write_latency
-            };
-            drop(lock);
-            write_latency.map(|delay| self.write_delay = Some(tokio::time::delay_for(delay)));
-            Poll::Ready(Ok(()))
-        }
-    }
 }
 
 impl AsyncRead for SimulatedTcpStream {
@@ -305,7 +190,9 @@ impl AsyncRead for SimulatedTcpStream {
         if let Some(net::Shutdown::Read) = self.shutdown_status() {
             return Poll::Ready(Ok(0));
         }
-        ready!(self.as_mut().poll_read_delay(cx))?;
+        if let Some(ref mut fault_injector) = self.fault_injector {
+            ready!(Pin::new(fault_injector).poll_read_delay(cx))?;
+        }
         Pin::new(&mut self.link).poll_read(cx, buf)
     }
 }
@@ -319,7 +206,9 @@ impl AsyncWrite for SimulatedTcpStream {
         if let Some(net::Shutdown::Write) = self.shutdown_status() {
             return Poll::Ready(Err(io::ErrorKind::ConnectionAborted.into()));
         }
-        ready!(self.as_mut().poll_write_delay(cx))?;
+        if let Some(ref mut fault_injector) = self.fault_injector {
+            ready!(Pin::new(fault_injector).poll_write_delay(cx))?;
+        }
         Pin::new(&mut self.link).poll_write(cx, buf)
     }
     fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), io::Error>> {
@@ -333,6 +222,7 @@ impl AsyncWrite for SimulatedTcpStream {
     }
 }
 
+use crate::fault::FaultInjector;
 use pin_project::{pin_project, project};
 
 #[pin_project]
@@ -382,77 +272,77 @@ impl TcpStream {
         }
     }
 
-    pub(crate) fn nodelay(&self) -> io::Result<bool> {
+    pub fn nodelay(&self) -> io::Result<bool> {
         match self.inner {
             TcpStreamInner::Simulated(ref s) => s.nodelay(),
             TcpStreamInner::Tokio(ref t) => t.nodelay(),
         }
     }
 
-    pub(crate) fn set_nodelay(&self, nodelay: bool) -> io::Result<()> {
+    pub fn set_nodelay(&self, nodelay: bool) -> io::Result<()> {
         match self.inner {
             TcpStreamInner::Simulated(ref s) => s.set_nodelay(nodelay),
             TcpStreamInner::Tokio(ref t) => t.set_nodelay(nodelay),
         }
     }
 
-    pub(crate) fn recv_buffer_size(&self) -> io::Result<usize> {
+    pub fn recv_buffer_size(&self) -> io::Result<usize> {
         match self.inner {
             TcpStreamInner::Simulated(ref s) => s.recv_buffer_size(),
             TcpStreamInner::Tokio(ref t) => t.recv_buffer_size(),
         }
     }
 
-    pub(crate) fn set_recv_buffer_size(&self, size: usize) -> io::Result<()> {
+    pub fn set_recv_buffer_size(&self, size: usize) -> io::Result<()> {
         match self.inner {
             TcpStreamInner::Simulated(ref s) => s.set_recv_buffer_size(size),
             TcpStreamInner::Tokio(ref t) => t.set_recv_buffer_size(size),
         }
     }
 
-    pub(crate) fn send_buffer_size(&self) -> io::Result<usize> {
+    pub fn send_buffer_size(&self) -> io::Result<usize> {
         match self.inner {
             TcpStreamInner::Simulated(ref s) => s.send_buffer_size(),
             TcpStreamInner::Tokio(ref t) => t.send_buffer_size(),
         }
     }
 
-    pub(crate) fn set_send_buffer_size(&self, size: usize) -> io::Result<()> {
+    pub fn set_send_buffer_size(&self, size: usize) -> io::Result<()> {
         match self.inner {
             TcpStreamInner::Simulated(ref s) => s.set_send_buffer_size(size),
             TcpStreamInner::Tokio(ref t) => t.set_send_buffer_size(size),
         }
     }
 
-    pub(crate) fn keepalive(&self) -> io::Result<Option<time::Duration>> {
+    pub fn keepalive(&self) -> io::Result<Option<time::Duration>> {
         match self.inner {
             TcpStreamInner::Simulated(ref s) => s.keepalive(),
             TcpStreamInner::Tokio(ref t) => t.keepalive(),
         }
     }
 
-    pub(crate) fn set_keepalive(&self, keepalive: Option<time::Duration>) -> io::Result<()> {
+    pub fn set_keepalive(&self, keepalive: Option<time::Duration>) -> io::Result<()> {
         match self.inner {
             TcpStreamInner::Simulated(ref s) => s.set_keepalive(keepalive),
             TcpStreamInner::Tokio(ref t) => t.set_keepalive(keepalive),
         }
     }
 
-    pub(crate) fn ttl(&self) -> io::Result<u32> {
+    pub fn ttl(&self) -> io::Result<u32> {
         match self.inner {
             TcpStreamInner::Simulated(ref s) => s.ttl(),
             TcpStreamInner::Tokio(ref t) => t.ttl(),
         }
     }
 
-    pub(crate) fn set_ttl(&self, ttl: u32) -> io::Result<()> {
+    pub fn set_ttl(&self, ttl: u32) -> io::Result<()> {
         match self.inner {
             TcpStreamInner::Simulated(ref s) => s.set_ttl(ttl),
             TcpStreamInner::Tokio(ref t) => t.set_ttl(ttl),
         }
     }
 
-    pub(crate) fn linger(&self) -> io::Result<Option<time::Duration>> {
+    pub fn linger(&self) -> io::Result<Option<time::Duration>> {
         match self.inner {
             TcpStreamInner::Simulated(ref s) => s.linger(),
             TcpStreamInner::Tokio(ref t) => t.linger(),

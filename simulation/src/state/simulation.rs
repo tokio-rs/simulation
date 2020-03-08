@@ -1,5 +1,6 @@
 //! Simulation contains the state for a simulation run. A simulation
 //! run is a determinstic test run with variance introduced via a seed.
+use crate::fault::FaultController;
 use crate::{
     net::tcp::{SimulatedTcpListener, SimulatedTcpStream},
     state::{LogicalMachine, LogicalMachineId},
@@ -17,19 +18,20 @@ use tokio::{runtime::Runtime, stream::StreamExt, task::JoinHandle};
 
 #[derive(Debug)]
 struct State {
-    seed: u64,
     next_machineid: u64,
     machines: HashMap<LogicalMachineId, LogicalMachine>,
     hostnames: HashSet<String>,
+    fault_controller: FaultController,
 }
 
 impl State {
     fn new(seed: u64) -> Self {
+        let fault_controller = FaultController::new(seed);
         State {
-            seed,
             next_machineid: 0,
             machines: HashMap::new(),
             hostnames: HashSet::new(),
+            fault_controller,
         }
     }
 
@@ -63,7 +65,8 @@ impl State {
             panic!("cannot register the same hostname twice");
         }
         let ipaddr = self.unused_ipaddr();
-        let machine = LogicalMachine::new(id, hostname.clone(), ipaddr);
+        let fault_injector = self.fault_controller.fault_injector();
+        let machine = LogicalMachine::new(id, hostname.clone(), ipaddr, Some(fault_injector));
         self.machines.insert(id, machine);
         self.hostnames.insert(hostname);
         self.machines.get_mut(&id).unwrap()
@@ -79,7 +82,7 @@ impl State {
         self.machines.get_mut(&id).expect("logical machine lost")
     }
 
-    /// Resolve a hostname to a [LogicalMachineId].    
+    /// Resolve a hostname to a [LogicalMachineId].
     ///
     /// [LogicalMachineId]:struct.LogicalMachineId.html
     fn resolve<S: Into<String>>(&self, hostname: S) -> Option<LogicalMachineId> {
@@ -105,7 +108,7 @@ impl State {
 #[derive(Debug)]
 pub struct Simulation {
     runtime: Runtime,
-    handles: FuturesUnordered<JoinHandle<()>>,
+    joinhandles: FuturesUnordered<JoinHandle<()>>,
     state: Arc<Mutex<State>>,
 }
 
@@ -122,7 +125,7 @@ impl Simulation {
         Self {
             runtime,
             state,
-            handles: FuturesUnordered::new(),
+            joinhandles: FuturesUnordered::new(),
         }
     }
 
@@ -146,7 +149,7 @@ impl Simulation {
         };
 
         let handle = self.runtime.spawn(future);
-        self.handles.push(handle);
+        self.joinhandles.push(handle);
         self
     }
 
@@ -154,14 +157,14 @@ impl Simulation {
     pub fn run(&mut self) {
         let handle = self.handle();
         with_handle(handle, || {
-            let handles = &mut self.handles;
+            let handles = &mut self.joinhandles;
             self.runtime
                 .block_on(async { for _ in handles.next().await {} })
         });
     }
 
     /// Run the simulation using the default "localhost" context.
-    pub fn simulate<F>(&mut self, f: F) -> F::Output
+    pub fn simulate<F>(&mut self, future: F) -> F::Output
     where
         F: Future + Send + 'static,
         F::Output: Send + 'static,
@@ -169,11 +172,17 @@ impl Simulation {
         let future = {
             let mut state = self.state.lock().unwrap();
             let machine = state.register_machine("localhost");
-            let handle = self.handle();
-            machine.register_task(f)
+            machine.register_task(future)
         };
-        let handle = self.handle();
-        with_handle(handle, || self.runtime.block_on(future))
+        let simhandle = self.handle();
+        with_handle(simhandle, || {
+            let joinhandles = &mut self.joinhandles;
+            self.runtime.block_on(async {
+                let result = future.await;
+                for _ in joinhandles.next().await {}
+                result
+            })
+        })
     }
 }
 
@@ -242,7 +251,7 @@ impl SimulationHandle {
         let local_machine_id = self.machine_id();
 
         if let Some(remote_machine_id) = lock.lookup(addr) {
-            // Safety: We ensure that the inidices we're borrowing here are unique.
+            // Safety: We ensure that the keys we're borrowing here are unique.
             let (local_machine, remote_machine): (&mut LogicalMachine, &mut LogicalMachine) = unsafe {
                 assert_ne!(local_machine_id, remote_machine_id);
                 let local_machine = lock.machine(local_machine_id) as *mut _;
