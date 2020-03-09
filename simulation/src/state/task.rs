@@ -1,11 +1,12 @@
 //! State for tasks which are running under simulation.
+use crate::fault::FaultInjector;
 use crate::state::LogicalTaskId;
 use core::cell::RefCell;
 use core::future::Future;
 use pin_project::pin_project;
 use std::{
     pin::Pin,
-    sync::{Arc, Mutex, Weak},
+    sync::{Arc, Mutex},
     task::{Context, Poll},
 };
 
@@ -28,32 +29,18 @@ pub(super) struct LogicalTask {
     /// polling the inner future. This will be reset to poll_priority once it
     /// reaches 0.
     poll_delay_remaining: u16,
+
+    fault_injector: Option<FaultInjector>,
 }
 
 impl LogicalTask {
-    fn new(id: LogicalTaskId) -> Self {
+    fn new(id: LogicalTaskId, fault_injector: Option<FaultInjector>) -> Self {
         Self {
             id,
             poll_priority: 0,
             poll_delay_remaining: 0,
+            fault_injector,
         }
-    }
-}
-
-#[derive(Debug)]
-pub struct LogicalTaskHandle {
-    inner: Weak<Mutex<LogicalTask>>,
-}
-
-impl LogicalTaskHandle {
-    /// Set the number of times the logical task associated with this
-    /// handle
-    pub fn set_poll_priority(&self, prio: u16) -> Option<()> {
-        Weak::upgrade(&self.inner).map(|l| {
-            let mut lock = l.lock().unwrap();
-            lock.poll_priority = prio;
-            lock.poll_delay_remaining = prio;
-        })
     }
 }
 
@@ -87,12 +74,28 @@ pub(super) struct LogicalTaskWrapper<F> {
     task: F,
 }
 
+impl<F> LogicalTaskWrapper<F> {
+    fn refresh_poll_priority(&self) {
+        let mut lock = self.inner.lock().unwrap();
+        let task_id = lock.id;
+        if let Some(new) = lock
+            .fault_injector
+            .as_ref()
+            .and_then(|fi| fi.update_task_poll_priority(task_id))
+        {
+            lock.poll_delay_remaining = new;
+            lock.poll_priority = new;
+        }
+    }
+}
+
 impl<F> Future for LogicalTaskWrapper<F>
 where
     F: Future,
 {
     type Output = F::Output;
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        self.refresh_poll_priority();
         let this = self.project();
         let id = { this.inner.lock().unwrap().id };
         with_current_taskid(id, move || {
@@ -110,21 +113,22 @@ where
     }
 }
 
-pub(super) fn wrap_task<F>(id: LogicalTaskId, f: F) -> (LogicalTaskHandle, LogicalTaskWrapper<F>)
+pub(super) fn wrap_task<F>(
+    id: LogicalTaskId,
+    fault_injector: Option<FaultInjector>,
+    f: F,
+) -> LogicalTaskWrapper<F>
 where
     F: Future,
 {
-    let inner = LogicalTask::new(id);
+    let inner = LogicalTask::new(id, fault_injector);
     let inner = Arc::new(Mutex::new(inner));
-    let handle = LogicalTaskHandle {
-        inner: Arc::downgrade(&inner),
-    };
     let task = LogicalTaskWrapper {
         inner: Arc::clone(&inner),
         task: f,
     };
 
-    (handle, task)
+    task
 }
 
 #[cfg(test)]
@@ -139,7 +143,7 @@ mod tests {
         let machine = LogicalMachineId::new(42);
         let taskid = machine.new_task(42);
         let task = async { assert_eq!(Some(taskid), current_taskid()) };
-        let (_, task) = wrap_task(taskid, task);
+        let task = wrap_task(taskid, None, task);
         let mut cx = Context::from_waker(futures::task::noop_waker_ref());
 
         futures::pin_mut!(task);
@@ -149,67 +153,5 @@ mod tests {
             "expected poll to succeed"
         );
         assert_eq!(None, current_taskid(), "expected taskid to be unset");
-    }
-
-    #[test]
-    fn task_poll_priority() {
-        let machine = LogicalMachineId::new(42);
-        let taskid = machine.new_task(42);
-        let task = async { assert_eq!(Some(taskid), current_taskid()) };
-        let (handle, task) = wrap_task(taskid, task);
-        let mut cx = Context::from_waker(futures::task::noop_waker_ref());
-        futures::pin_mut!(task);
-        handle.set_poll_priority(2);
-        // A poll priority of 2 should result in the task returning
-        // Poll::Pending twice before the underlying task is polled.
-        assert_eq!(task.as_mut().poll(&mut cx), Poll::Pending);
-        assert_eq!(task.as_mut().poll(&mut cx), Poll::Pending);
-        assert_eq!(task.as_mut().poll(&mut cx), Poll::Ready(()));
-    }
-
-    /// Test that the method for waking a task with a nonzero poll priority works with Tokio's basic
-    /// scheduler.
-    #[test]
-    fn task_poll_priority_wakes_task() {
-        let mut rt = tokio::runtime::Builder::new()
-            .basic_scheduler()
-            .build()
-            .unwrap();
-        rt.block_on(async {
-            let machine = LogicalMachineId::new(42);
-            let taskid = machine.new_task(42);
-            let task = async { assert_eq!(Some(taskid), current_taskid()) };
-            let (handle, task) = wrap_task(taskid, task);
-            futures::pin_mut!(task);
-            handle.set_poll_priority(2);
-            task.await;
-        })
-    }
-
-    /// Test that tasks with a higher poll priority always complete after tasks with a lower poll priority.
-    #[test]
-    fn test_poll_priority_imbalance() {
-        let mut rt = tokio::runtime::Builder::new()
-            .basic_scheduler()
-            .enable_time()
-            .freeze_time()
-            .build()
-            .unwrap();
-        rt.block_on(async {
-            let machine = LogicalMachineId::new(42);
-            let taskid = machine.new_task(42);
-            let task = async { assert_eq!(Some(taskid), current_taskid()) };
-            let (handle, task_slow) = wrap_task(taskid, task);
-            handle.set_poll_priority(2);
-            let task_fast = async { tokio::time::delay_for(std::time::Duration::from_secs(1)) };
-            tokio::select! {
-                _ = task_slow => {
-                    assert!(false, "expected fast task to complete first")
-                }
-                _ = task_fast => {
-                    return;
-                }
-            }
-        })
     }
 }

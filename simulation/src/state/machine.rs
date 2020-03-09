@@ -3,7 +3,7 @@
 
 use crate::fault::FaultInjector;
 use crate::net::tcp::{SimulatedTcpListener, SimulatedTcpListenerHandle, SimulatedTcpStream};
-use crate::state::{task::wrap_task, LogicalMachineId, LogicalTaskHandle, LogicalTaskId};
+use crate::state::{task::wrap_task, LogicalMachineId, LogicalTaskId};
 use futures::ready;
 use std::{
     collections::{HashMap, HashSet},
@@ -20,7 +20,6 @@ pub struct LogicalMachine {
     hostname: String,
     localaddr: net::IpAddr,
     bound: HashMap<NonZeroU16, SimulatedTcpListenerHandle>,
-    tasks: HashMap<LogicalTaskId, LogicalTaskHandle>,
     fault_injector: Option<FaultInjector>,
 }
 
@@ -40,7 +39,6 @@ impl LogicalMachine {
             hostname: hostname.into(),
             localaddr: addr,
             bound: HashMap::new(),
-            tasks: HashMap::new(),
             fault_injector,
         }
     }
@@ -69,8 +67,8 @@ impl LogicalMachine {
         F::Output: 'static,
     {
         let taskid = self.new_taskid();
-        let (handle, task) = wrap_task(taskid, future);
-        self.tasks.insert(taskid, handle);
+        let fault_injector = self.fault_injector.clone();
+        let task = wrap_task(taskid, fault_injector, future);
         return task;
     }
 

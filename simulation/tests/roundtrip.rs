@@ -50,6 +50,7 @@ enum Message {
 async fn handler(socket: TcpStream, mut tx: mpsc::Sender<Message>) {
     let mut transport = Framed::new(socket, LinesCodec::new());
     while let Some(Ok(msg)) = transport.next().await {
+        println!("received message: {}", msg);
         match msg.as_str() {
             "ping" => {
                 let _ = tx.send(Message::Ping).await;
@@ -104,11 +105,11 @@ async fn ring_node(next_addr: String) {
             msg = rx.next() => {
                 match msg {
                     Some(Message::Ping) => {
-                        let _ = client.send_ping().await;
+                        client.send_ping().await.expect("failed to send ping to next node");
                     }
                     Some(Message::Stop) => {
                         stop_tx.send(()).expect("failed to signal stop");
-                        let _ = client.send_stop().await;
+                        client.send_stop().await.expect("failed to send stop to next node");
                         break;
                     }
                     None => {
@@ -125,7 +126,7 @@ async fn ring_node(next_addr: String) {
 /// upon recipt of a message.
 #[test]
 fn roundtrip_ring() {
-    Simulation::new(32)
+    Simulation::new(0)
         // 4 node ring
         .machine("node0", ring_node(String::from("node1:9092")))
         .machine("node1", ring_node(String::from("node2:9092")))
@@ -144,7 +145,7 @@ fn roundtrip_ring() {
                 .await
                 .expect("failed to send initial event");
             println!("sent first message");
-            // let the message ring run for an hour
+            // let the message ring run for a day
             delay_for(Duration::from_secs(60 * 60)).await;
             client.send_stop().await.unwrap();
 

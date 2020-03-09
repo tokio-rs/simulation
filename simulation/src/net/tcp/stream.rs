@@ -187,11 +187,13 @@ impl AsyncRead for SimulatedTcpStream {
         cx: &mut Context<'_>,
         buf: &mut [u8],
     ) -> Poll<io::Result<usize>> {
+        let from = self.local_addr;
+        let to = self.peer_addr;
         if let Some(net::Shutdown::Read) = self.shutdown_status() {
             return Poll::Ready(Ok(0));
         }
         if let Some(ref mut fault_injector) = self.fault_injector {
-            ready!(Pin::new(fault_injector).poll_read_delay(cx))?;
+            ready!(Pin::new(fault_injector).tcp_poll_read_delay(cx, from, to))?;
         }
         Pin::new(&mut self.link).poll_read(cx, buf)
     }
@@ -203,11 +205,13 @@ impl AsyncWrite for SimulatedTcpStream {
         cx: &mut Context<'_>,
         buf: &[u8],
     ) -> Poll<Result<usize, io::Error>> {
+        let from = self.local_addr;
+        let to = self.peer_addr;
         if let Some(net::Shutdown::Write) = self.shutdown_status() {
             return Poll::Ready(Err(io::ErrorKind::ConnectionAborted.into()));
         }
         if let Some(ref mut fault_injector) = self.fault_injector {
-            ready!(Pin::new(fault_injector).poll_write_delay(cx))?;
+            ready!(Pin::new(fault_injector).tcp_poll_write_delay(cx, from, to))?;
         }
         Pin::new(&mut self.link).poll_write(cx, buf)
     }

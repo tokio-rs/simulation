@@ -3,10 +3,9 @@ mod ident;
 mod machine;
 mod simulation;
 mod task;
-use ident::{LogicalMachineId, LogicalTaskId};
+pub(crate) use ident::{LogicalMachineId, LogicalTaskId};
 use machine::LogicalMachine;
 pub use simulation::{Simulation, SimulationHandle};
-pub use task::LogicalTaskHandle;
 
 #[cfg(test)]
 mod tests {

@@ -8,7 +8,6 @@ mod state;
 mod util;
 pub use net::tcp::SimulatedTcpStream;
 pub use spawn::spawn;
-pub use state::LogicalTaskHandle;
 pub use state::{Simulation, SimulationHandle};
 pub mod task {
     pub use crate::spawn::spawn_blocking;
